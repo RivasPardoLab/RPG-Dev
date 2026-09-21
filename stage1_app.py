@@ -1,4 +1,4 @@
-"""macOS desktop interface for RPG Stage 1 through Stage 3A."""
+"""macOS desktop interface for RPG Stage 1 through Vina docking."""
 
 import sys
 from pathlib import Path
@@ -9,10 +9,12 @@ from PyQt5.QtGui import QDesktopServices, QFont
 from PyQt5.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox
 
 from MainWin.ui_mainwindow import Ui_Window
+from ConfigWin.ConfVinaWindow import ConfWindow
 from PepWin.PeptideWindow import PepWindow, peptideDict
 from stage1 import generate_peptide_library
 from stage2 import run_stage2
 from stage3a import run_stage3a
+from stage3b import VinaConfig, run_vina_docking, write_vina_config
 
 
 APP_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -90,23 +92,56 @@ class PDBQTWorker(QThread):
         self.completed.emit(len(generated), str(generated[0].parent))
 
 
+class VinaWorker(QThread):
+    progress = pyqtSignal(int)
+    completed = pyqtSignal(int, str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, receptor, ligands, workspace, config, parent=None):
+        super().__init__(parent)
+        self.receptor = Path(receptor)
+        self.ligands = [Path(path) for path in ligands]
+        self.workspace = Path(workspace)
+        self.config = config
+
+    def run(self):
+        try:
+            generated = run_vina_docking(
+                self.receptor,
+                self.ligands,
+                self.workspace,
+                self.config,
+                progress=self.progress.emit,
+            )
+        except Exception as error:
+            self.failed.emit(str(error))
+            return
+        self.completed.emit(len(generated), str(generated[0].parent))
+
+
 class RPGWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.ui = Ui_Window()
         self.ui.setupUi(self)
-        self.setWindowTitle("RPG — Peptide Library, PDB and PDBQT Generator")
+        self.setWindowTitle("RPG — Peptide Library and AutoDock Vina")
         self.setWindowFlag(Qt.FramelessWindowHint)
         self.resize(1000, 800)
 
         self.selector = PepWindow(self)
         self.selector.setModal(True)
+        self.confwin = ConfWindow(self)
+        self.confwin.setModal(True)
         self.worker = None
         self.pdb_worker = None
         self.pdbqt_worker = None
+        self.vina_worker = None
         self.output_file = None
         self.library_count = 0
         self.pdb_count = 0
+        self.receptor_file = None
+        self.ligand_files = []
+        self.vina_config = None
         self.old_position = QPoint()
 
         self._configure_ui()
@@ -175,6 +210,26 @@ class RPGWindow(QMainWindow):
         self.ui.progressBar_vina.setParent(self.ui.frame_15)
         self.ui.verticalLayout_18.addWidget(self.ui.progressBar_vina)
         self.ui.progressBar_vina.hide()
+        self.ui.Second_Stage3.hide()
+        self.ui.Third_Stage3.hide()
+        self.ui.label_13.setText("Stage 3B")
+        self.ui.label_11.setWordWrap(True)
+        self.ui.label_11.setText(
+            "Select a prepared receptor in PDBQT format. The peptide ligands "
+            "generated above are selected automatically."
+        )
+        self.ui.selectprotein_stage3Button.setText("Select Receptor PDBQT")
+        self.ui.selectpep_stage3Button.setText("Choose Ligand Subset")
+        self.ui.label_15.setText("Docking")
+        self.ui.label_16.setWordWrap(True)
+        self.ui.label_16.setText(
+            "Configure the search box and run AutoDock Vina with the original "
+            "RPG parameters."
+        )
+        self.ui.configureVinaButton.setText("Configure Vina")
+        self.ui.runVinaButton.setText("Run Vina")
+        self.ui.runVinaButton.hide()
+        self.ui.gotostage4Button.hide()
 
     def _connect_actions(self):
         self.ui.setpepButton.clicked.connect(self.open_peptide_selector)
@@ -186,6 +241,12 @@ class RPGWindow(QMainWindow):
         self.ui.stage3Button.clicked.connect(self.show_stage3a)
         self.ui.gotostage3Button.clicked.connect(self.show_stage3a)
         self.ui.obconvertButton.clicked.connect(self.build_pdbqt_files)
+        self.ui.selectprotein_stage3Button.clicked.connect(self.select_receptor)
+        self.ui.selectpep_stage3Button.clicked.connect(self.select_ligands)
+        self.ui.configureVinaButton.clicked.connect(self.open_vina_configuration)
+        self.ui.runVinaButton.clicked.connect(self.run_vina)
+        self.confwin.ui.saveButton.clicked.connect(self.save_vina_configuration)
+        self.confwin.ui.resetButton.clicked.connect(self.reset_vina_configuration)
         self.ui.xButton.clicked.connect(self.close)
         self.ui.minimizeButton.clicked.connect(self.showMinimized)
         self.ui.squareButton.clicked.connect(self.toggle_maximized)
@@ -316,6 +377,11 @@ class RPGWindow(QMainWindow):
     def generation_finished(self, count: int):
         self.library_count = count
         self.pdb_count = 0
+        self.receptor_file = None
+        self.ligand_files = []
+        self.vina_config = None
+        self.ui.Second_Stage3.hide()
+        self.ui.Third_Stage3.hide()
         self.ui.stage3Button.hide()
         self.ui.gotostage3Button.hide()
         self.ui.runchimButton.setEnabled(True)
@@ -446,12 +512,28 @@ class RPGWindow(QMainWindow):
 
     def pdbqt_generation_finished(self, count: int, output_directory: str):
         self.ui.progressBar_vina.setValue(count)
+        ligand_directory = Path(output_directory)
+        self.ligand_files = sorted(
+            ligand_directory.glob("*.pdbqt"),
+            key=lambda path: (
+                (0, int(path.stem))
+                if path.stem.isdigit()
+                else (1, path.stem.lower())
+            ),
+        )
         self.ui.label_14.setText(
             f"{count:,} peptide PDB files were converted successfully. "
             f"The numbered PDBQT ligands are in:\n{output_directory}"
         )
+        self.ui.progressBar_vina.hide()
+        self.ui.Second_Stage3.show()
+        self.ui.selectpep_stage3Button.setText(
+            f"Choose Ligand Subset ({count:,} selected)"
+        )
+        self._update_vina_readiness()
         self._show_message(
-            f"Stage 3A generated {count:,} PDBQT ligands in:\n{output_directory}",
+            f"Stage 3A generated {count:,} PDBQT ligands in:\n{output_directory}\n\n"
+            "Continue by selecting a prepared receptor PDBQT for AutoDock Vina.",
             QMessageBox.Information,
             "Stage 3A complete",
         )
@@ -460,6 +542,170 @@ class RPGWindow(QMainWindow):
         self.ui.label_14.setText("PDBQT conversion failed: " + message)
         self.ui.obconvertButton.setEnabled(True)
         self._show_message(message, QMessageBox.Critical, "PDBQT conversion failed")
+
+    def select_receptor(self):
+        if self.output_file is None:
+            return
+        selected, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select the prepared receptor",
+            str(self.output_file.parent),
+            "PDBQT files (*.pdbqt)",
+        )
+        if not selected:
+            return
+        self.receptor_file = Path(selected).expanduser().resolve()
+        self.ui.selectprotein_stage3Button.setText(
+            f"Receptor: {self.receptor_file.name}"
+        )
+        self._update_vina_readiness()
+
+    def select_ligands(self):
+        if self.output_file is None:
+            return
+        selected, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select peptide ligands",
+            str(self.output_file.parent / "Ligands"),
+            "PDBQT files (*.pdbqt)",
+        )
+        if not selected:
+            return
+        self.ligand_files = [Path(path).expanduser().resolve() for path in selected]
+        self.ui.selectpep_stage3Button.setText(
+            f"Choose Ligand Subset ({len(self.ligand_files):,} selected)"
+        )
+        self._update_vina_readiness()
+
+    def _update_vina_readiness(self):
+        ready = self.receptor_file is not None and bool(self.ligand_files)
+        self.ui.Third_Stage3.setVisible(ready)
+        if ready:
+            self.ui.label_11.setText(
+                f"Receptor: {self.receptor_file.name}\n"
+                f"Peptide ligands selected: {len(self.ligand_files):,}"
+            )
+            self.ui.configureVinaButton.show()
+            self.ui.runVinaButton.setVisible(self.vina_config is not None)
+
+    def open_vina_configuration(self):
+        self.confwin.show()
+        self.confwin.raise_()
+        self.confwin.activateWindow()
+
+    def reset_vina_configuration(self):
+        for box in (
+            self.confwin.ui.centerx_box,
+            self.confwin.ui.centery_box_2,
+            self.confwin.ui.centerx_box_3,
+        ):
+            box.setValue(0)
+        for box in (
+            self.confwin.ui.sizeX_box,
+            self.confwin.ui.sizey_box,
+            self.confwin.ui.sizeZ_box,
+        ):
+            box.setValue(60)
+        self.confwin.ui.Exhaustivness_box.setValue(10)
+
+    def save_vina_configuration(self):
+        if self.output_file is None:
+            return
+        config = VinaConfig(
+            center_x=self.confwin.ui.centerx_box.value(),
+            center_y=self.confwin.ui.centery_box_2.value(),
+            center_z=self.confwin.ui.centerx_box_3.value(),
+            size_x=self.confwin.ui.sizeX_box.value(),
+            size_y=self.confwin.ui.sizey_box.value(),
+            size_z=self.confwin.ui.sizeZ_box.value(),
+            exhaustiveness=self.confwin.ui.Exhaustivness_box.value(),
+            num_modes=10,
+            energy_range=4,
+        )
+        try:
+            config_path = write_vina_config(
+                self.output_file.parent / "config.txt", config
+            )
+        except Exception as error:
+            self._show_message(
+                str(error), QMessageBox.Critical, "Invalid Vina configuration"
+            )
+            return
+
+        self.vina_config = config
+        self.confwin.close()
+        self.ui.runVinaButton.show()
+        self.ui.label_16.setText(
+            f"Vina configuration saved in {config_path.name}. "
+            f"Box center: {config.center}; size: {config.size}; "
+            f"exhaustiveness: {config.exhaustiveness}."
+        )
+
+    def run_vina(self):
+        if (
+            self.output_file is None
+            or self.receptor_file is None
+            or not self.ligand_files
+            or self.vina_config is None
+        ):
+            self._show_message(
+                "Select the receptor and ligands, then save the Vina configuration.",
+                QMessageBox.Warning,
+                "Docking configuration incomplete",
+            )
+            return
+
+        results_directory = self.output_file.parent / "VinaResults"
+        if results_directory.exists() and any(results_directory.iterdir()):
+            self._show_message(
+                "The VinaResults folder is not empty. Move or remove its contents "
+                "before running docking again.",
+                QMessageBox.Warning,
+                "Existing Vina results",
+            )
+            return
+
+        self.ui.runVinaButton.setEnabled(False)
+        self.ui.configureVinaButton.setEnabled(False)
+        self.ui.progressBar_vina.setParent(self.ui.frame_19)
+        self.ui.verticalLayout_20.insertWidget(2, self.ui.progressBar_vina)
+        self.ui.progressBar_vina.setRange(0, len(self.ligand_files))
+        self.ui.progressBar_vina.setValue(0)
+        self.ui.progressBar_vina.show()
+        self.ui.label_16.setText("AutoDock Vina is docking the peptide library…")
+
+        self.vina_worker = VinaWorker(
+            self.receptor_file,
+            self.ligand_files,
+            self.output_file.parent,
+            self.vina_config,
+            self,
+        )
+        self.vina_worker.progress.connect(self.ui.progressBar_vina.setValue)
+        self.vina_worker.completed.connect(self.vina_finished)
+        self.vina_worker.failed.connect(self.vina_failed)
+        self.vina_worker.start()
+
+    def vina_finished(self, count: int, output_directory: str):
+        self.ui.progressBar_vina.setValue(count)
+        self.ui.runVinaButton.setEnabled(True)
+        self.ui.configureVinaButton.setEnabled(True)
+        self.ui.label_16.setText(
+            f"Docking complete: {count:,} peptide results, affinities.csv and "
+            f"docking-manifest.json were saved in:\n{output_directory}"
+        )
+        self._show_message(
+            f"AutoDock Vina completed {count:,} peptide dockings.\n\n"
+            f"Results: {output_directory}",
+            QMessageBox.Information,
+            "Vina docking complete",
+        )
+
+    def vina_failed(self, message: str):
+        self.ui.runVinaButton.setEnabled(True)
+        self.ui.configureVinaButton.setEnabled(True)
+        self.ui.label_16.setText("Vina docking failed: " + message)
+        self._show_message(message, QMessageBox.Critical, "Vina docking failed")
 
     def _show_message(self, text, icon, title):
         message = QMessageBox(self)

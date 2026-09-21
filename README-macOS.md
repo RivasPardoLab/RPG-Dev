@@ -1,14 +1,16 @@
-# RPG Stage 1–3A for macOS
+# RPG Stage 1–3B for macOS
 
-This branch is a conservative macOS edition of the RPG workflow through Stage
-3A, published in [RivasPardoLab/RPG-Dev](https://github.com/RivasPardoLab/RPG-Dev).
+This branch is a conservative macOS edition of the RPG workflow through Vina
+docking, based on [RivasPardoLab/RPG-Dev](https://github.com/RivasPardoLab/RPG-Dev).
 It keeps the RPG interface, amino-acid selector, combination algorithm,
 `peptides.txt`, random selection in `random.txt`, and numbered PDB output in
 `Chimera-Peptides`. Stage 2 uses PeptideBuilder instead of UCSF Chimera. Stage
 3A preserves RPG's Open Babel operation: add hydrogens to the numbered PDB
-structures and write corresponding PDBQT files to `Ligands`. AutoDock Vina,
-docking, receptor preparation, and result analysis are intentionally not part
-of this edition.
+structures and write corresponding PDBQT files to `Ligands`. Stage 3B accepts
+an externally prepared receptor PDBQT, retains RPG's original Vina search-box
+parameters, and runs AutoDock Vina 1.2.7. Results are written to `VinaResults`.
+Receptor preparation and Stage 4 result analysis are intentionally not part of
+this edition yet.
 
 Stage 3A deliberately calls Open Babel's `AddHydrogens()` just like the
 published RPG code. It does not select a pH, minimize the structures, or apply
@@ -16,6 +18,19 @@ a different charge model. Open Babel can report a bond-order/kekulization
 warning for some histidine- or tryptophan-containing PDB structures. The PDBQT
 files remain readable, but their atom typing should be reviewed before using
 those structures in production docking.
+
+## Vina docking
+
+After Stage 3A, select a receptor that has already been prepared in PDBQT
+format. RPG automatically selects the numbered peptide ligands it just
+generated, while **Choose Ligand Subset** can restrict the run. The Vina dialog
+preserves the published RPG defaults: 10 poses, energy range 4 kcal/mol, and
+exhaustiveness 10. Center and box dimensions are supplied by the user.
+
+The run creates numbered `*-out.pdbqt` pose files plus `affinities.csv` and
+`docking-manifest.json`. The manifest records the Vina version, configuration,
+and actual random seed for every ligand. Existing contents of `VinaResults`
+are never overwritten.
 
 ## Run from source
 

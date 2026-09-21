@@ -21,6 +21,7 @@ export PYINSTALLER_CONFIG_DIR="${PYINSTALLER_CONFIG_DIR:-$build_dir/pyinstaller-
     --name "RPG-macOS" \
     --osx-bundle-identifier "org.rivaspardolab.rpg.macos" \
     --collect-all "openbabel" \
+    --collect-all "vina" \
     --copy-metadata "openbabel" \
     --add-binary "$openbabel_plugins:openbabel/lib/openbabel/$openbabel_version" \
     --icon "$app_icon" \
