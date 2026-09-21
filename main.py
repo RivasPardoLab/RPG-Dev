@@ -1,4 +1,4 @@
-"""Entry point for the macOS Stage 1 and Stage 2 edition of RPG."""
+"""Entry point for the macOS Stage 1 through Stage 3A edition of RPG."""
 
 from stage1_app import main
 

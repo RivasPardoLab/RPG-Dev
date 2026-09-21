@@ -1,4 +1,4 @@
-"""macOS desktop interface for RPG Stage 1 and Stage 2."""
+"""macOS desktop interface for RPG Stage 1 through Stage 3A."""
 
 import sys
 from pathlib import Path
@@ -12,6 +12,7 @@ from MainWin.ui_mainwindow import Ui_Window
 from PepWin.PeptideWindow import PepWindow, peptideDict
 from stage1 import generate_peptide_library
 from stage2 import run_stage2
+from stage3a import run_stage3a
 
 
 APP_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -66,12 +67,35 @@ class PDBWorker(QThread):
         self.completed.emit(len(generated), str(generated[0].parent))
 
 
+class PDBQTWorker(QThread):
+    progress = pyqtSignal(int)
+    completed = pyqtSignal(int, str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, workspace: Path, requested_count: int, parent=None):
+        super().__init__(parent)
+        self.workspace = workspace
+        self.requested_count = requested_count
+
+    def run(self):
+        try:
+            generated = run_stage3a(
+                self.workspace,
+                self.requested_count,
+                progress=self.progress.emit,
+            )
+        except Exception as error:
+            self.failed.emit(str(error))
+            return
+        self.completed.emit(len(generated), str(generated[0].parent))
+
+
 class RPGWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.ui = Ui_Window()
         self.ui.setupUi(self)
-        self.setWindowTitle("RPG — Peptide Library and PDB Generator")
+        self.setWindowTitle("RPG — Peptide Library, PDB and PDBQT Generator")
         self.setWindowFlag(Qt.FramelessWindowHint)
         self.resize(1000, 800)
 
@@ -79,8 +103,10 @@ class RPGWindow(QMainWindow):
         self.selector.setModal(True)
         self.worker = None
         self.pdb_worker = None
+        self.pdbqt_worker = None
         self.output_file = None
         self.library_count = 0
+        self.pdb_count = 0
         self.old_position = QPoint()
 
         self._configure_ui()
@@ -101,6 +127,7 @@ class RPGWindow(QMainWindow):
         self.ui.label_7.hide()
         self.ui.textEdit.setReadOnly(True)
         self._configure_stage2_page()
+        self._configure_stage3a_page()
 
     def _configure_stage2_page(self):
         self.ui.label_5.hide()
@@ -123,6 +150,32 @@ class RPGWindow(QMainWindow):
         self.ui.progressBar_2.hide()
         self.ui.gotostage3Button.hide()
 
+    def _configure_stage3a_page(self):
+        self.ui.label_stage3_Continue.hide()
+        self.ui.Continue_stage3.hide()
+        self.ui.Second_Stage3.hide()
+        self.ui.Third_Stage3.hide()
+        self.ui.label_stage3_NewGame.setMinimumWidth(760)
+        self.ui.label_stage3_NewGame.setAlignment(Qt.AlignCenter)
+        self.ui.label_stage3_NewGame.setWordWrap(True)
+        self.ui.label_stage3_NewGame.setText(
+            "<html><body><p align='center'>Prepare the peptide PDB files "
+            "as PDBQT ligands for AutoDock Vina using Open Babel.</p></body></html>"
+        )
+        self.ui.label_12.setText("Stage 3A")
+        self.ui.label_14.setWordWrap(True)
+        self.ui.label_14.setText(
+            "Open Babel will add hydrogens and write numbered PDBQT files "
+            "to the Ligands folder."
+        )
+        self.ui.label_18.setText("How many PDB files do you want to convert?")
+        self.ui.spinBox_2.setRange(1, 10000)
+        self.ui.obconvertButton.setText("Convert to PDBQT")
+        self.ui.verticalLayout_20.removeWidget(self.ui.progressBar_vina)
+        self.ui.progressBar_vina.setParent(self.ui.frame_15)
+        self.ui.verticalLayout_18.addWidget(self.ui.progressBar_vina)
+        self.ui.progressBar_vina.hide()
+
     def _connect_actions(self):
         self.ui.setpepButton.clicked.connect(self.open_peptide_selector)
         self.ui.directoryButton.clicked.connect(self.choose_output_directory)
@@ -130,6 +183,9 @@ class RPGWindow(QMainWindow):
         self.ui.stage2Button.clicked.connect(self.show_stage2)
         self.ui.gotostage2Button.clicked.connect(self.show_stage2)
         self.ui.runchimButton.clicked.connect(self.build_pdb_files)
+        self.ui.stage3Button.clicked.connect(self.show_stage3a)
+        self.ui.gotostage3Button.clicked.connect(self.show_stage3a)
+        self.ui.obconvertButton.clicked.connect(self.build_pdbqt_files)
         self.ui.xButton.clicked.connect(self.close)
         self.ui.minimizeButton.clicked.connect(self.showMinimized)
         self.ui.squareButton.clicked.connect(self.toggle_maximized)
@@ -166,6 +222,7 @@ class RPGWindow(QMainWindow):
         self.ui.stackedWidget.setCurrentWidget(self.ui.stage1)
         self.ui.stage1Button.setEnabled(False)
         self.ui.stage2Button.setEnabled(self.output_file is not None)
+        self.ui.stage3Button.setEnabled(self.pdb_count > 0)
 
     def show_stage2(self):
         if self.output_file is None:
@@ -173,6 +230,15 @@ class RPGWindow(QMainWindow):
         self.ui.stackedWidget.setCurrentWidget(self.ui.stage2)
         self.ui.stage1Button.setEnabled(True)
         self.ui.stage2Button.setEnabled(False)
+        self.ui.stage3Button.setEnabled(self.pdb_count > 0)
+
+    def show_stage3a(self):
+        if self.output_file is None or self.pdb_count == 0:
+            return
+        self.ui.stackedWidget.setCurrentWidget(self.ui.stage3)
+        self.ui.stage1Button.setEnabled(True)
+        self.ui.stage2Button.setEnabled(True)
+        self.ui.stage3Button.setEnabled(False)
 
     def open_peptide_selector(self):
         self.ui.setpepButton.setEnabled(False)
@@ -249,6 +315,9 @@ class RPGWindow(QMainWindow):
 
     def generation_finished(self, count: int):
         self.library_count = count
+        self.pdb_count = 0
+        self.ui.stage3Button.hide()
+        self.ui.gotostage3Button.hide()
         self.ui.runchimButton.setEnabled(True)
         self.ui.label_working.hide()
         self.ui.label_done.hide()
@@ -312,6 +381,7 @@ class RPGWindow(QMainWindow):
         self.pdb_worker.start()
 
     def pdb_generation_finished(self, count: int, output_directory: str):
+        self.pdb_count = count
         self.ui.progressBar_2.setValue(count)
         self.ui.label_working.hide()
         self.ui.label_done.setText(
@@ -319,8 +389,16 @@ class RPGWindow(QMainWindow):
             f"The numbered PDB files are in:\n{output_directory}"
         )
         self.ui.label_done.show()
+        self.ui.spinBox_2.setValue(min(100, count))
+        self.ui.obconvertButton.setEnabled(True)
+        self.ui.progressBar_vina.hide()
+        self.ui.stage3Button.show()
+        self.ui.stage3Button.setEnabled(True)
+        self.ui.gotostage3Button.show()
+        self.ui.gotostage3Button.setEnabled(True)
         self._show_message(
-            f"Stage 2 generated {count:,} PDB files in:\n{output_directory}",
+            f"Stage 2 generated {count:,} PDB files in:\n{output_directory}\n\n"
+            "Continue to Stage 3A to prepare PDBQT ligands.",
             QMessageBox.Information,
             "Stage 2 complete",
         )
@@ -329,6 +407,59 @@ class RPGWindow(QMainWindow):
         self.ui.label_working.hide()
         self.ui.runchimButton.setEnabled(True)
         self._show_message(message, QMessageBox.Critical, "PDB conversion failed")
+
+    def build_pdbqt_files(self):
+        if self.output_file is None or self.pdb_count == 0:
+            self._show_message(
+                "No PDB files are available. Run Stage 2 first.",
+                QMessageBox.Warning,
+                "PDB files missing",
+            )
+            return
+
+        workspace = self.output_file.parent
+        output_directory = workspace / "Ligands"
+        if output_directory.exists() and any(output_directory.glob("*.pdbqt")):
+            self._show_message(
+                "The Ligands folder already contains PDBQT files. "
+                "Move or remove them before running Stage 3A again.",
+                QMessageBox.Warning,
+                "Existing PDBQT files",
+            )
+            return
+
+        requested_count = self.ui.spinBox_2.value()
+        expected_count = min(requested_count, self.pdb_count)
+        self.ui.obconvertButton.setEnabled(False)
+        self.ui.label_14.setText(
+            "Open Babel is adding hydrogens and converting the peptide PDB files…"
+        )
+        self.ui.progressBar_vina.setRange(0, expected_count)
+        self.ui.progressBar_vina.setValue(0)
+        self.ui.progressBar_vina.show()
+
+        self.pdbqt_worker = PDBQTWorker(workspace, requested_count, self)
+        self.pdbqt_worker.progress.connect(self.ui.progressBar_vina.setValue)
+        self.pdbqt_worker.completed.connect(self.pdbqt_generation_finished)
+        self.pdbqt_worker.failed.connect(self.pdbqt_generation_failed)
+        self.pdbqt_worker.start()
+
+    def pdbqt_generation_finished(self, count: int, output_directory: str):
+        self.ui.progressBar_vina.setValue(count)
+        self.ui.label_14.setText(
+            f"{count:,} peptide PDB files were converted successfully. "
+            f"The numbered PDBQT ligands are in:\n{output_directory}"
+        )
+        self._show_message(
+            f"Stage 3A generated {count:,} PDBQT ligands in:\n{output_directory}",
+            QMessageBox.Information,
+            "Stage 3A complete",
+        )
+
+    def pdbqt_generation_failed(self, message: str):
+        self.ui.label_14.setText("PDBQT conversion failed: " + message)
+        self.ui.obconvertButton.setEnabled(True)
+        self._show_message(message, QMessageBox.Critical, "PDBQT conversion failed")
 
     def _show_message(self, text, icon, title):
         message = QMessageBox(self)

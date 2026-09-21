@@ -7,6 +7,9 @@ dist_dir="$project_dir/dist"
 source_icon="$project_dir/MainWin/icons/Lab2.png"
 app_icon="$project_dir/icon.ico"
 python_bin="${PYTHON_BIN:-python}"
+openbabel_dir="$("$python_bin" -c 'from pathlib import Path; import openbabel; print(Path(openbabel.__file__).resolve().parent)')"
+openbabel_version="$("$python_bin" -c 'import openbabel; print(openbabel.__version__)')"
+openbabel_plugins="$openbabel_dir/lib/openbabel/$openbabel_version"
 
 mkdir -p "$build_dir" "$dist_dir"
 export PYINSTALLER_CONFIG_DIR="${PYINSTALLER_CONFIG_DIR:-$build_dir/pyinstaller-cache}"
@@ -17,6 +20,9 @@ export PYINSTALLER_CONFIG_DIR="${PYINSTALLER_CONFIG_DIR:-$build_dir/pyinstaller-
     --windowed \
     --name "RPG-macOS" \
     --osx-bundle-identifier "org.rivaspardolab.rpg.macos" \
+    --collect-all "openbabel" \
+    --copy-metadata "openbabel" \
+    --add-binary "$openbabel_plugins:openbabel/lib/openbabel/$openbabel_version" \
     --icon "$app_icon" \
     --add-data "$project_dir/eight-bit-dragon.otf:." \
     --add-data "$source_icon:MainWin/icons" \
