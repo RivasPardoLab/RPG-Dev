@@ -1,0 +1,9 @@
+name: rpg-stage1-macos
+channels:
+  - defaults
+dependencies:
+  - python=3.13.9
+  - pyqt=5.15.10
+  - pip
+  - pip:
+      - pyinstaller==6.16.0

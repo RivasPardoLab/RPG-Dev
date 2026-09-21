@@ -71,7 +71,7 @@ numb = 0
 class PepWindow(QDialog):
 
     def __init__(self, parent=None):
-        QDialog.__init__(self)
+        QDialog.__init__(self, parent)
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
         self.setWindowFlag(Qt.FramelessWindowHint)
@@ -149,6 +149,7 @@ class PepWindow(QDialog):
 
 
     def resetAll(self):
+        peptideDict.clear()
         self.ui.tabWidget.clear()
 
         self.ui.selectButton.setEnabled(False)
@@ -168,6 +169,7 @@ class PepWindow(QDialog):
 
     def getValuesCheckBox(self):
         global peptideDict
+        peptideDict.clear()
         self.sum = 0
         self.tri = 0
 
@@ -268,7 +270,6 @@ class TabContents(QWidget):
             self.checkbox = QCheckBox(allAminoAcids[k][2].capitalize())
             self.checkbox.setObjectName(newName)
             self.vbox.addWidget(self.checkbox)
-            self.setLayout(self.vbox)
             setattr(QWidget, "checkbox", self.checkbox)
 
         for k in sorted(allAminoAcids.keys())[10:]:
@@ -276,8 +277,6 @@ class TabContents(QWidget):
             self.checkbox = QCheckBox(allAminoAcids[k][2].capitalize())
             self.checkbox.setObjectName(newName)
             self.xbox.addWidget(self.checkbox)
-            self.setLayout(self.xbox)
             setattr(QWidget, "checkbox", self.checkbox)
             # print(self.checkbox.objectName())
         numb += 1
-
