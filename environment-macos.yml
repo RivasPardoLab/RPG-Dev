@@ -1,9 +1,12 @@
-name: rpg-stage1-macos
+name: rpg-macos
 channels:
   - defaults
 dependencies:
   - python=3.13.9
   - pyqt=5.15.10
+  - numpy=2.1.3
   - pip
   - pip:
-      - pyinstaller==6.16.0
+      - pyinstaller==6.22.3
+      - biopython==1.88
+      - PeptideBuilder==1.1.0

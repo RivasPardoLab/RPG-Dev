@@ -15,30 +15,30 @@ export PYINSTALLER_CONFIG_DIR="${PYINSTALLER_CONFIG_DIR:-$build_dir/pyinstaller-
     --noconfirm \
     --clean \
     --windowed \
-    --name "RPG-Stage1" \
-    --osx-bundle-identifier "org.rivaspardolab.rpg.stage1" \
+    --name "RPG-macOS" \
+    --osx-bundle-identifier "org.rivaspardolab.rpg.macos" \
     --icon "$app_icon" \
     --add-data "$project_dir/eight-bit-dragon.otf:." \
     --add-data "$source_icon:MainWin/icons" \
     "$project_dir/main.py"
 
-app_path="$dist_dir/RPG-Stage1.app"
-/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName RPG Stage 1" "$app_path/Contents/Info.plist"
+app_path="$dist_dir/RPG-macOS.app"
+/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName RPG macOS" "$app_path/Contents/Info.plist"
 codesign --force --deep --sign - "$app_path"
 
-dmg_path="$dist_dir/RPG-Stage1-macOS.dmg"
+dmg_path="$dist_dir/RPG-macOS.dmg"
 if [[ -e "$dmg_path" ]]; then
     mv "$dmg_path" "$dmg_path.previous"
 fi
 if hdiutil create \
-    -volname "RPG Stage 1" \
+    -volname "RPG macOS" \
     -srcfolder "$app_path" \
     -ov \
     -format UDZO \
     "$dmg_path"; then
     echo "Built: $dmg_path"
 else
-    zip_path="$dist_dir/RPG-Stage1-macOS.zip"
+    zip_path="$dist_dir/RPG-macOS.zip"
     if [[ -e "$zip_path" ]]; then
         mv "$zip_path" "$zip_path.previous"
     fi
