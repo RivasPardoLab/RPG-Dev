@@ -82,6 +82,18 @@ def validate_receptor_pdbqt(path: Path) -> Path:
         raise FileNotFoundError(f"The receptor PDBQT file was not found: {path}")
     if not _atom_lines(path):
         raise ValueError("The receptor PDBQT file contains no atoms")
+    ligand_tags = ("ROOT", "BRANCH", "ENDBRANCH", "TORSDOF")
+    found_tags = {
+        line.split()[0]
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.startswith(ligand_tags)
+    }
+    if found_tags:
+        raise ValueError(
+            "The selected receptor contains ligand torsion tags "
+            f"({', '.join(sorted(found_tags))}). Select a rigid receptor PDBQT "
+            "prepared with Meeko, not a ligand converted by Open Babel."
+        )
     return path
 
 

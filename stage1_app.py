@@ -6,7 +6,13 @@ from pathlib import Path
 from PyQt5 import QtGui
 from PyQt5.QtCore import QPoint, QThread, Qt, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices, QFont
-from PyQt5.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox
+from PyQt5.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+)
 
 from MainWin.ui_mainwindow import Ui_Window
 from ConfigWin.ConfVinaWindow import ConfWindow
@@ -14,7 +20,13 @@ from PepWin.PeptideWindow import PepWindow, peptideDict
 from stage1 import generate_peptide_library
 from stage2 import run_stage2
 from stage3a import run_stage3a
-from stage3b import VinaConfig, run_vina_docking, write_vina_config
+from stage3_receptor import prepare_rigid_receptor
+from stage3b import (
+    VinaConfig,
+    run_vina_docking,
+    validate_receptor_pdbqt,
+    write_vina_config,
+)
 
 
 APP_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -92,6 +104,24 @@ class PDBQTWorker(QThread):
         self.completed.emit(len(generated), str(generated[0].parent))
 
 
+class ReceptorWorker(QThread):
+    completed = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, source_pdb: Path, workspace: Path, parent=None):
+        super().__init__(parent)
+        self.source_pdb = Path(source_pdb)
+        self.workspace = Path(workspace)
+
+    def run(self):
+        try:
+            receptor = prepare_rigid_receptor(self.source_pdb, self.workspace)
+        except Exception as error:
+            self.failed.emit(str(error))
+            return
+        self.completed.emit(str(receptor))
+
+
 class VinaWorker(QThread):
     progress = pyqtSignal(int)
     completed = pyqtSignal(int, str)
@@ -135,6 +165,7 @@ class RPGWindow(QMainWindow):
         self.worker = None
         self.pdb_worker = None
         self.pdbqt_worker = None
+        self.receptor_worker = None
         self.vina_worker = None
         self.output_file = None
         self.library_count = 0
@@ -215,11 +246,21 @@ class RPGWindow(QMainWindow):
         self.ui.label_13.setText("Stage 3B")
         self.ui.label_11.setWordWrap(True)
         self.ui.label_11.setText(
-            "Select a prepared receptor in PDBQT format. The peptide ligands "
-            "generated above are selected automatically."
+            "Provide a cleaned protein PDB and RPG will prepare a rigid Vina "
+            "receptor with Meeko. You can also select an existing rigid PDBQT."
         )
-        self.ui.selectprotein_stage3Button.setText("Select Receptor PDBQT")
-        self.ui.selectpep_stage3Button.setText("Choose Ligand Subset")
+        self.ui.selectprotein_stage3Button.setText("Prepare Receptor from PDB")
+        self.ui.selectpep_stage3Button.setText("Use Existing Receptor PDBQT")
+        self.ligand_subset_button = QPushButton("Choose Ligand Subset", self.ui.frame_13)
+        self.ligand_subset_button.setFocusPolicy(Qt.NoFocus)
+        self.ligand_subset_button.setMinimumWidth(230)
+        self.ligand_subset_button.setMaximumWidth(260)
+        self.ligand_subset_button.setStyleSheet(
+            self.ui.selectpep_stage3Button.styleSheet()
+        )
+        self.ui.verticalLayout_17.addWidget(
+            self.ligand_subset_button, 0, Qt.AlignHCenter
+        )
         self.ui.label_15.setText("Docking")
         self.ui.label_16.setWordWrap(True)
         self.ui.label_16.setText(
@@ -241,8 +282,11 @@ class RPGWindow(QMainWindow):
         self.ui.stage3Button.clicked.connect(self.show_stage3a)
         self.ui.gotostage3Button.clicked.connect(self.show_stage3a)
         self.ui.obconvertButton.clicked.connect(self.build_pdbqt_files)
-        self.ui.selectprotein_stage3Button.clicked.connect(self.select_receptor)
-        self.ui.selectpep_stage3Button.clicked.connect(self.select_ligands)
+        self.ui.selectprotein_stage3Button.clicked.connect(
+            self.prepare_receptor_from_pdb
+        )
+        self.ui.selectpep_stage3Button.clicked.connect(self.select_receptor)
+        self.ligand_subset_button.clicked.connect(self.select_ligands)
         self.ui.configureVinaButton.clicked.connect(self.open_vina_configuration)
         self.ui.runVinaButton.clicked.connect(self.run_vina)
         self.confwin.ui.saveButton.clicked.connect(self.save_vina_configuration)
@@ -380,6 +424,9 @@ class RPGWindow(QMainWindow):
         self.receptor_file = None
         self.ligand_files = []
         self.vina_config = None
+        self.ui.selectprotein_stage3Button.setText("Prepare Receptor from PDB")
+        self.ui.selectpep_stage3Button.setText("Use Existing Receptor PDBQT")
+        self.ligand_subset_button.setText("Choose Ligand Subset")
         self.ui.Second_Stage3.hide()
         self.ui.Third_Stage3.hide()
         self.ui.stage3Button.hide()
@@ -527,13 +574,14 @@ class RPGWindow(QMainWindow):
         )
         self.ui.progressBar_vina.hide()
         self.ui.Second_Stage3.show()
-        self.ui.selectpep_stage3Button.setText(
+        self.ligand_subset_button.setText(
             f"Choose Ligand Subset ({count:,} selected)"
         )
         self._update_vina_readiness()
         self._show_message(
             f"Stage 3A generated {count:,} PDBQT ligands in:\n{output_directory}\n\n"
-            "Continue by selecting a prepared receptor PDBQT for AutoDock Vina.",
+            "Continue by preparing a cleaned receptor PDB or selecting an "
+            "existing rigid receptor PDBQT.",
             QMessageBox.Information,
             "Stage 3A complete",
         )
@@ -554,11 +602,64 @@ class RPGWindow(QMainWindow):
         )
         if not selected:
             return
-        self.receptor_file = Path(selected).expanduser().resolve()
+        try:
+            receptor = validate_receptor_pdbqt(Path(selected))
+        except Exception as error:
+            self._show_message(
+                str(error), QMessageBox.Critical, "Invalid rigid receptor"
+            )
+            return
+        self.receptor_file = receptor
+        self.ui.selectpep_stage3Button.setText(f"Existing: {receptor.name}")
+        self._update_vina_readiness()
+
+    def prepare_receptor_from_pdb(self):
+        if self.output_file is None:
+            return
+        selected, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select the cleaned receptor PDB",
+            str(self.output_file.parent),
+            "Protein Data Bank files (*.pdb)",
+        )
+        if not selected:
+            return
+
+        self.ui.selectprotein_stage3Button.setEnabled(False)
+        self.ui.selectpep_stage3Button.setEnabled(False)
+        self.ui.selectprotein_stage3Button.setText("Preparing rigid receptor…")
+        self.ui.label_11.setText(
+            "Meeko is assigning receptor templates, charges and AutoDock atom types…"
+        )
+        self.receptor_worker = ReceptorWorker(
+            Path(selected), self.output_file.parent, self
+        )
+        self.receptor_worker.completed.connect(self.receptor_preparation_finished)
+        self.receptor_worker.failed.connect(self.receptor_preparation_failed)
+        self.receptor_worker.start()
+
+    def receptor_preparation_finished(self, receptor_path: str):
+        self.receptor_file = Path(receptor_path)
+        self.ui.selectprotein_stage3Button.setEnabled(True)
+        self.ui.selectpep_stage3Button.setEnabled(True)
         self.ui.selectprotein_stage3Button.setText(
-            f"Receptor: {self.receptor_file.name}"
+            f"Prepared: {self.receptor_file.name}"
         )
         self._update_vina_readiness()
+        self._show_message(
+            f"The rigid receptor was prepared with Meeko and saved as:\n"
+            f"{self.receptor_file}\n\nNo chains, waters, ligands, metals or "
+            "problematic residues were deleted automatically.",
+            QMessageBox.Information,
+            "Rigid receptor ready",
+        )
+
+    def receptor_preparation_failed(self, message: str):
+        self.ui.selectprotein_stage3Button.setEnabled(True)
+        self.ui.selectpep_stage3Button.setEnabled(True)
+        self.ui.selectprotein_stage3Button.setText("Prepare Receptor from PDB")
+        self.ui.label_11.setText("Receptor preparation failed: " + message)
+        self._show_message(message, QMessageBox.Critical, "Receptor preparation failed")
 
     def select_ligands(self):
         if self.output_file is None:
@@ -572,7 +673,7 @@ class RPGWindow(QMainWindow):
         if not selected:
             return
         self.ligand_files = [Path(path).expanduser().resolve() for path in selected]
-        self.ui.selectpep_stage3Button.setText(
+        self.ligand_subset_button.setText(
             f"Choose Ligand Subset ({len(self.ligand_files):,} selected)"
         )
         self._update_vina_readiness()

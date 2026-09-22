@@ -7,10 +7,11 @@ It keeps the RPG interface, amino-acid selector, combination algorithm,
 `Chimera-Peptides`. Stage 2 uses PeptideBuilder instead of UCSF Chimera. Stage
 3A preserves RPG's Open Babel operation: add hydrogens to the numbered PDB
 structures and write corresponding PDBQT files to `Ligands`. Stage 3B accepts
-an externally prepared receptor PDBQT, retains RPG's original Vina search-box
-parameters, and runs AutoDock Vina 1.2.7. Results are written to `VinaResults`.
-Receptor preparation and Stage 4 result analysis are intentionally not part of
-this edition yet.
+a user-cleaned protein PDB and prepares it as a rigid receptor with Meeko 0.8,
+or accepts an existing rigid receptor PDBQT. It retains RPG's original Vina
+search-box parameters and runs AutoDock Vina 1.2.7. Results are written to
+`VinaResults`. Stage 4 result analysis is intentionally not part of this
+edition yet.
 
 Stage 3A deliberately calls Open Babel's `AddHydrogens()` just like the
 published RPG code. It does not select a pH, minimize the structures, or apply
@@ -21,11 +22,21 @@ those structures in production docking.
 
 ## Vina docking
 
-After Stage 3A, select a receptor that has already been prepared in PDBQT
-format. RPG automatically selects the numbered peptide ligands it just
-generated, while **Choose Ligand Subset** can restrict the run. The Vina dialog
-preserves the published RPG defaults: 10 poses, energy range 4 kcal/mol, and
-exhaustiveness 10. Center and box dimensions are supplied by the user.
+After Stage 3A, use **Prepare Receptor from PDB** with a protein structure that
+you have already cleaned. RPG parameterizes it with Meeko and writes the rigid
+PDBQT plus `<name>_receptor-manifest.json` in `Receptor`. This conservative
+step does not silently remove chains, waters, ligands, metals, alternate
+locations, or bad residues. Template failures must be corrected in the input
+structure.
+
+**Use Existing Receptor PDBQT** remains available. RPG now rejects files with
+ligand-only torsion records such as `ROOT`, `BRANCH`, or `TORSDOF` before Vina
+runs. The numbered peptide ligands are selected automatically, while **Choose
+Ligand Subset** can restrict the run.
+
+The Vina dialog preserves the published RPG defaults: 10 poses, energy range 4
+kcal/mol, and exhaustiveness 10. Center and box dimensions are supplied by the
+user.
 
 The run creates numbered `*-out.pdbqt` pose files plus `affinities.csv` and
 `docking-manifest.json`. The manifest records the Vina version, configuration,

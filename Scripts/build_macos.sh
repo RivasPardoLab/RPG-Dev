@@ -22,7 +22,15 @@ export PYINSTALLER_CONFIG_DIR="${PYINSTALLER_CONFIG_DIR:-$build_dir/pyinstaller-
     --osx-bundle-identifier "org.rivaspardolab.rpg.macos" \
     --collect-all "openbabel" \
     --collect-all "vina" \
-    --copy-metadata "openbabel" \
+    --collect-data "meeko" \
+    --copy-metadata "openbabel-wheel" \
+    --copy-metadata "meeko" \
+    --exclude-module "IPython" \
+    --exclude-module "matplotlib" \
+    --exclude-module "pandas" \
+    --exclude-module "prody" \
+    --exclude-module "PySide6" \
+    --exclude-module "PyQt6" \
     --add-binary "$openbabel_plugins:openbabel/lib/openbabel/$openbabel_version" \
     --icon "$app_icon" \
     --add-data "$project_dir/eight-bit-dragon.otf:." \
