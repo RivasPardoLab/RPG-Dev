@@ -1,4 +1,4 @@
-"""macOS desktop interface for RPG Stage 1 through Vina docking."""
+"""macOS desktop interface for RPG Stage 1 through Stage 4 result analysis."""
 
 import sys
 from pathlib import Path
@@ -7,12 +7,19 @@ from PyQt5 import QtGui
 from PyQt5.QtCore import QPoint, QThread, Qt, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices, QFont
 from PyQt5.QtWidgets import (
+    QAbstractItemView,
     QApplication,
+    QCheckBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
+    QHeaderView,
+    QLabel,
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSpinBox,
+    QTableWidgetItem,
 )
 
 from MainWin.ui_mainwindow import Ui_Window
@@ -28,6 +35,13 @@ from stage3b import (
     run_vina_docking,
     validate_receptor_pdbqt,
     write_vina_config,
+)
+from stage4 import (
+    analyze_position_enrichment,
+    filter_ranked_results,
+    load_ranked_results,
+    write_best_peptides,
+    write_position_enrichment,
 )
 
 
@@ -175,6 +189,9 @@ class RPGWindow(QMainWindow):
         self.receptor_file = None
         self.ligand_files = []
         self.vina_config = None
+        self.stage4_workspace = None
+        self.stage4_results = []
+        self.stage4_filtered = []
         self.old_position = QPoint()
 
         self._configure_ui()
@@ -186,7 +203,8 @@ class RPGWindow(QMainWindow):
         self.ui.homeButton.hide()
         self.ui.stage2Button.hide()
         self.ui.stage3Button.hide()
-        self.ui.stage4Button.hide()
+        self.ui.stage4Button.show()
+        self.ui.stage4Button.setEnabled(True)
         self.ui.stage1Button.setEnabled(False)
         self.ui.gotostage2Button.hide()
         self.ui.mid_frame.hide()
@@ -196,6 +214,7 @@ class RPGWindow(QMainWindow):
         self.ui.textEdit.setReadOnly(True)
         self._configure_stage2_page()
         self._configure_stage3a_page()
+        self._configure_stage4_page()
 
     def _configure_stage2_page(self):
         self.ui.label_5.hide()
@@ -284,6 +303,60 @@ class RPGWindow(QMainWindow):
         self.ui.runVinaButton.hide()
         self.ui.gotostage4Button.hide()
 
+    def _configure_stage4_page(self):
+        self.ui.choosedir_stage4.setText("Open Existing RPG Workspace")
+        self.ui.label_stage4.setAlignment(Qt.AlignCenter)
+        self.ui.label_stage4.setWordWrap(True)
+        self.ui.label_stage4.setText(
+            "Open a workspace containing random.txt and "
+            "VinaResults/affinities.csv, or continue here after docking."
+        )
+
+        self.ui.aff_spinbox.hide()
+        self.use_affinity_cutoff = QCheckBox(
+            "Affinity ≤", self.ui.frame_Selectpeptides
+        )
+        self.use_affinity_cutoff.setChecked(True)
+        self.affinity_cutoff_box = QDoubleSpinBox(self.ui.frame_Selectpeptides)
+        self.affinity_cutoff_box.setDecimals(2)
+        self.affinity_cutoff_box.setRange(-1000.0, 1000.0)
+        self.affinity_cutoff_box.setSingleStep(0.1)
+        self.affinity_cutoff_box.setValue(-5.0)
+        self.affinity_cutoff_box.setSuffix(" kcal/mol")
+        self.affinity_cutoff_box.setMinimumWidth(165)
+        self.affinity_cutoff_box.setStyleSheet(self.ui.aff_spinbox.styleSheet())
+        self.top_n_label = QLabel("Top", self.ui.frame_Selectpeptides)
+        self.top_n_box = QSpinBox(self.ui.frame_Selectpeptides)
+        self.top_n_box.setRange(0, 1_000_000)
+        self.top_n_box.setSpecialValueText("All")
+        self.top_n_box.setValue(0)
+        self.top_n_box.setMinimumWidth(90)
+        self.top_n_box.setStyleSheet(self.ui.aff_spinbox.styleSheet())
+        self.ui.horizontalLayout_20.insertWidget(0, self.use_affinity_cutoff)
+        self.ui.horizontalLayout_20.insertWidget(1, self.affinity_cutoff_box)
+        self.ui.horizontalLayout_20.insertWidget(2, self.top_n_label)
+        self.ui.horizontalLayout_20.insertWidget(3, self.top_n_box)
+        self.ui.bestpepButton.setText("Rank and Export")
+
+        self.ui.tableWidget.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.ui.tableWidget.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.ui.tableWidget.setAlternatingRowColors(False)
+        self.ui.label_19.setText("Minimum frequency among filtered peptides")
+        self.ui.confidenceSpinbox.setValue(50)
+        self.ui.horizontalSlider.setValue(50)
+        self.ui.pickAAButton.setText("Analyze Amino Acids")
+        self.ui.tableWidget_2.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.ui.tableWidget_2.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.ui.tableWidget_2.setAlternatingRowColors(False)
+
+        self.ui.frame_Selectpeptides.hide()
+        self.ui.frame_6.hide()
+        self.ui.frame_10.hide()
+        self.ui.tableWidget_2.hide()
+        # The legacy PyMOL controls are replaced by an embedded cartoon viewer
+        # in Stage 4B. Keep them out of this analysis-only release.
+        self.ui.frame_14.hide()
+
     def _connect_actions(self):
         self.ui.setpepButton.clicked.connect(self.open_peptide_selector)
         self.ui.directoryButton.clicked.connect(self.choose_output_directory)
@@ -293,6 +366,8 @@ class RPGWindow(QMainWindow):
         self.ui.runchimButton.clicked.connect(self.build_pdb_files)
         self.ui.stage3Button.clicked.connect(self.show_stage3a)
         self.ui.gotostage3Button.clicked.connect(self.show_stage3a)
+        self.ui.stage4Button.clicked.connect(self.show_stage4)
+        self.ui.gotostage4Button.clicked.connect(self.show_stage4)
         self.ui.obconvertButton.clicked.connect(self.build_pdbqt_files)
         self.ui.selectprotein_stage3Button.clicked.connect(
             self.prepare_receptor_from_pdb
@@ -302,6 +377,9 @@ class RPGWindow(QMainWindow):
         self.ui.configureVinaButton.clicked.connect(self.open_vina_configuration)
         self.preview_box_button.clicked.connect(self.open_docking_box_viewer)
         self.ui.runVinaButton.clicked.connect(self.run_vina)
+        self.ui.choosedir_stage4.clicked.connect(self.choose_stage4_workspace)
+        self.ui.bestpepButton.clicked.connect(self.rank_stage4_results)
+        self.ui.pickAAButton.clicked.connect(self.analyze_stage4_sequences)
         self.confwin.ui.saveButton.clicked.connect(self.save_vina_configuration)
         self.confwin.ui.resetButton.clicked.connect(self.reset_vina_configuration)
         self.ui.xButton.clicked.connect(self.close)
@@ -341,6 +419,7 @@ class RPGWindow(QMainWindow):
         self.ui.stage1Button.setEnabled(False)
         self.ui.stage2Button.setEnabled(self.output_file is not None)
         self.ui.stage3Button.setEnabled(self.pdb_count > 0)
+        self.ui.stage4Button.setEnabled(True)
 
     def show_stage2(self):
         if self.output_file is None:
@@ -349,6 +428,7 @@ class RPGWindow(QMainWindow):
         self.ui.stage1Button.setEnabled(True)
         self.ui.stage2Button.setEnabled(False)
         self.ui.stage3Button.setEnabled(self.pdb_count > 0)
+        self.ui.stage4Button.setEnabled(True)
 
     def show_stage3a(self):
         if self.output_file is None or self.pdb_count == 0:
@@ -357,6 +437,179 @@ class RPGWindow(QMainWindow):
         self.ui.stage1Button.setEnabled(True)
         self.ui.stage2Button.setEnabled(True)
         self.ui.stage3Button.setEnabled(False)
+        self.ui.stage4Button.setEnabled(True)
+
+    def show_stage4(self):
+        self.ui.stackedWidget.setCurrentWidget(self.ui.stage4)
+        self.ui.stage1Button.setEnabled(True)
+        self.ui.stage2Button.setEnabled(self.output_file is not None)
+        self.ui.stage3Button.setEnabled(self.pdb_count > 0)
+        self.ui.stage4Button.setEnabled(False)
+
+        if self.output_file is None:
+            return
+        workspace = self.output_file.parent
+        affinity_report = workspace / "VinaResults" / "affinities.csv"
+        if affinity_report.is_file() and workspace != self.stage4_workspace:
+            self.load_stage4_workspace(workspace)
+
+    def choose_stage4_workspace(self):
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            "Select an RPG workspace with Vina results",
+            str(
+                self.stage4_workspace
+                or (self.output_file.parent if self.output_file else default_documents_directory())
+            ),
+        )
+        if selected:
+            self.load_stage4_workspace(Path(selected))
+
+    def load_stage4_workspace(self, workspace: Path, show_error: bool = True) -> bool:
+        workspace = Path(workspace).expanduser().resolve()
+        try:
+            results = load_ranked_results(workspace)
+        except Exception as error:
+            if show_error:
+                self._show_message(
+                    str(error), QMessageBox.Critical, "Cannot load Stage 4 results"
+                )
+            return False
+
+        self.stage4_workspace = workspace
+        self.stage4_results = results
+        self.stage4_filtered = []
+        self.top_n_box.setMaximum(len(results))
+        self.top_n_box.setValue(0)
+        lowest = results[0].affinity
+        highest = results[-1].affinity
+        suggested = min(-5.0, highest)
+        self.affinity_cutoff_box.setRange(
+            min(-1000.0, lowest - 10.0), max(1000.0, highest + 10.0)
+        )
+        self.affinity_cutoff_box.setValue(suggested)
+        self.ui.label_stage4.setText(
+            f"Loaded {len(results):,} docking results from {workspace}. "
+            f"Affinity range: {lowest:g} to {highest:g} kcal/mol."
+        )
+        self.ui.frame_Selectpeptides.show()
+        self.ui.frame_6.hide()
+        self.ui.frame_10.hide()
+        self.ui.tableWidget_2.hide()
+        self.ui.tableWidget.clearContents()
+        self.ui.tableWidget.setRowCount(0)
+        self.ui.tableWidget_2.clearContents()
+        self.ui.tableWidget_2.setRowCount(0)
+        return True
+
+    @staticmethod
+    def _table_item(value, numeric: bool = False) -> QTableWidgetItem:
+        item = QTableWidgetItem()
+        if numeric:
+            item.setData(Qt.EditRole, value)
+            item.setTextAlignment(Qt.AlignCenter)
+        else:
+            item.setText(str(value))
+        return item
+
+    def rank_stage4_results(self):
+        if not self.stage4_results or self.stage4_workspace is None:
+            return
+        cutoff = (
+            self.affinity_cutoff_box.value()
+            if self.use_affinity_cutoff.isChecked()
+            else None
+        )
+        top_n = self.top_n_box.value() or None
+        try:
+            selected = filter_ranked_results(
+                self.stage4_results, maximum_affinity=cutoff, top_n=top_n
+            )
+        except Exception as error:
+            self._show_message(
+                str(error), QMessageBox.Critical, "Cannot rank Stage 4 results"
+            )
+            return
+        if not selected:
+            self._show_message(
+                "No docking result meets the selected filters.",
+                QMessageBox.Warning,
+                "No matching peptides",
+            )
+            return
+        try:
+            report = write_best_peptides(
+                self.stage4_workspace / "Best-Peptides.csv", selected
+            )
+        except Exception as error:
+            self._show_message(
+                str(error), QMessageBox.Critical, "Cannot export ranked peptides"
+            )
+            return
+        self.stage4_filtered = selected
+        table = self.ui.tableWidget
+        table.setColumnCount(5)
+        table.setHorizontalHeaderLabels(
+            ("Rank", "Peptide ID", "Sequence", "Affinity (kcal/mol)", "Result file")
+        )
+        table.setRowCount(len(selected))
+        for rank, result in enumerate(selected, start=1):
+            row = rank - 1
+            table.setItem(row, 0, self._table_item(rank, numeric=True))
+            table.setItem(row, 1, self._table_item(result.peptide_id, numeric=True))
+            table.setItem(row, 2, self._table_item(result.sequence))
+            table.setItem(row, 3, self._table_item(result.affinity, numeric=True))
+            table.setItem(row, 4, self._table_item(result.result_file))
+        table.resizeColumnsToContents()
+        table.setColumnWidth(0, 70)
+        table.setColumnWidth(1, 105)
+        table.setColumnWidth(3, 180)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        self.ui.frame_6.show()
+        self.ui.frame_10.show()
+        self.ui.tableWidget_2.hide()
+        self.ui.label_stage4.setText(
+            f"Ranked {len(selected):,} of {len(self.stage4_results):,} results. "
+            f"Exported {report.name} in {self.stage4_workspace}."
+        )
+
+    def analyze_stage4_sequences(self):
+        if not self.stage4_filtered or self.stage4_workspace is None:
+            return
+        try:
+            enriched = analyze_position_enrichment(
+                self.stage4_filtered, self.ui.confidenceSpinbox.value()
+            )
+            report = write_position_enrichment(
+                self.stage4_workspace / "Best-AminoAcids.csv", enriched
+            )
+        except Exception as error:
+            self._show_message(
+                str(error), QMessageBox.Critical, "Cannot analyze peptide sequences"
+            )
+            return
+
+        table = self.ui.tableWidget_2
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(
+            ("Peptide position", "Amino acid", "Count", "Frequency (%)")
+        )
+        table.setRowCount(len(enriched))
+        for row, result in enumerate(enriched):
+            table.setItem(row, 0, self._table_item(result.position, numeric=True))
+            table.setItem(row, 1, self._table_item(result.amino_acid))
+            table.setItem(row, 2, self._table_item(result.count, numeric=True))
+            table.setItem(
+                row, 3, self._table_item(round(result.frequency_percent, 2), numeric=True)
+            )
+        table.resizeColumnsToContents()
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        table.show()
+        self.ui.label_stage4.setText(
+            f"Found {len(enriched):,} position/amino-acid combinations at or above "
+            f"{self.ui.confidenceSpinbox.value()}%. Exported {report.name}."
+        )
 
     def open_peptide_selector(self):
         self.ui.setpepButton.setEnabled(False)
@@ -437,6 +690,9 @@ class RPGWindow(QMainWindow):
         self.receptor_file = None
         self.ligand_files = []
         self.vina_config = None
+        self.stage4_workspace = None
+        self.stage4_results = []
+        self.stage4_filtered = []
         self.ui.selectprotein_stage3Button.setText("Prepare Receptor from PDB")
         self.ui.selectpep_stage3Button.setText("Use Existing Receptor PDBQT")
         self.ligand_subset_button.setText("Choose Ligand Subset")
@@ -444,6 +700,11 @@ class RPGWindow(QMainWindow):
         self.ui.Third_Stage3.hide()
         self.ui.stage3Button.hide()
         self.ui.gotostage3Button.hide()
+        self.ui.gotostage4Button.hide()
+        self.ui.frame_Selectpeptides.hide()
+        self.ui.frame_6.hide()
+        self.ui.frame_10.hide()
+        self.ui.tableWidget_2.hide()
         self.ui.runchimButton.setEnabled(True)
         self.ui.label_working.hide()
         self.ui.label_done.hide()
@@ -868,9 +1129,13 @@ class RPGWindow(QMainWindow):
             f"Docking complete: {count:,} peptide results, affinities.csv and "
             f"docking-manifest.json were saved in:\n{output_directory}"
         )
+        self.load_stage4_workspace(self.output_file.parent, show_error=False)
+        self.ui.gotostage4Button.show()
+        self.ui.gotostage4Button.setEnabled(True)
         self._show_message(
             f"AutoDock Vina completed {count:,} peptide dockings.\n\n"
-            f"Results: {output_directory}",
+            f"Results: {output_directory}\n\n"
+            "Continue to Stage 4 to rank and analyze the peptide sequences.",
             QMessageBox.Information,
             "Vina docking complete",
         )
