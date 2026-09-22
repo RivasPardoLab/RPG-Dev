@@ -8,6 +8,7 @@ from PyQt5.QtCore import QPoint, QThread, Qt, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices, QFont
 from PyQt5.QtWidgets import (
     QApplication,
+    QDialog,
     QFileDialog,
     QMainWindow,
     QMessageBox,
@@ -21,6 +22,7 @@ from stage1 import generate_peptide_library
 from stage2 import run_stage2
 from stage3a import run_stage3a
 from stage3_receptor import prepare_rigid_receptor
+from docking_box_viewer import DockingBoxDialog
 from stage3b import (
     VinaConfig,
     run_vina_docking,
@@ -264,10 +266,20 @@ class RPGWindow(QMainWindow):
         self.ui.label_15.setText("Docking")
         self.ui.label_16.setWordWrap(True)
         self.ui.label_16.setText(
-            "Configure the search box and run AutoDock Vina with the original "
-            "RPG parameters."
+            "Preview or manually configure the search box, then run AutoDock "
+            "Vina with the original RPG parameters."
         )
         self.ui.configureVinaButton.setText("Configure Vina")
+        self.preview_box_button = QPushButton("Preview Docking Box", self.ui.frame_19)
+        self.preview_box_button.setFocusPolicy(Qt.NoFocus)
+        self.preview_box_button.setMinimumSize(200, 30)
+        self.preview_box_button.setMaximumSize(200, 30)
+        self.preview_box_button.setStyleSheet(
+            self.ui.configureVinaButton.styleSheet()
+        )
+        self.ui.verticalLayout_20.insertWidget(
+            1, self.preview_box_button, 0, Qt.AlignHCenter
+        )
         self.ui.runVinaButton.setText("Run Vina")
         self.ui.runVinaButton.hide()
         self.ui.gotostage4Button.hide()
@@ -288,6 +300,7 @@ class RPGWindow(QMainWindow):
         self.ui.selectpep_stage3Button.clicked.connect(self.select_receptor)
         self.ligand_subset_button.clicked.connect(self.select_ligands)
         self.ui.configureVinaButton.clicked.connect(self.open_vina_configuration)
+        self.preview_box_button.clicked.connect(self.open_docking_box_viewer)
         self.ui.runVinaButton.clicked.connect(self.run_vina)
         self.confwin.ui.saveButton.clicked.connect(self.save_vina_configuration)
         self.confwin.ui.resetButton.clicked.connect(self.reset_vina_configuration)
@@ -610,6 +623,8 @@ class RPGWindow(QMainWindow):
             )
             return
         self.receptor_file = receptor
+        self.vina_config = None
+        self.ui.runVinaButton.hide()
         self.ui.selectpep_stage3Button.setText(f"Existing: {receptor.name}")
         self._update_vina_readiness()
 
@@ -640,6 +655,8 @@ class RPGWindow(QMainWindow):
 
     def receptor_preparation_finished(self, receptor_path: str):
         self.receptor_file = Path(receptor_path)
+        self.vina_config = None
+        self.ui.runVinaButton.hide()
         self.ui.selectprotein_stage3Button.setEnabled(True)
         self.ui.selectpep_stage3Button.setEnabled(True)
         self.ui.selectprotein_stage3Button.setText(
@@ -693,6 +710,62 @@ class RPGWindow(QMainWindow):
         self.confwin.show()
         self.confwin.raise_()
         self.confwin.activateWindow()
+
+    def open_docking_box_viewer(self):
+        if self.receptor_file is None:
+            self._show_message(
+                "Prepare or select a rigid receptor before opening the box preview.",
+                QMessageBox.Warning,
+                "Receptor required",
+            )
+            return
+
+        if self.vina_config is None:
+            initial_center = None
+            initial_size = (
+                self.confwin.ui.sizeX_box.value(),
+                self.confwin.ui.sizey_box.value(),
+                self.confwin.ui.sizeZ_box.value(),
+            )
+        else:
+            initial_center = self.vina_config.center
+            initial_size = self.vina_config.size
+
+        try:
+            dialog = DockingBoxDialog(
+                self.receptor_file,
+                initial_center=initial_center,
+                initial_size=initial_size,
+                parent=self,
+            )
+        except Exception as error:
+            self._show_message(
+                str(error), QMessageBox.Critical, "Docking-box preview failed"
+            )
+            return
+
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        for box, value in zip(
+            (
+                self.confwin.ui.centerx_box,
+                self.confwin.ui.centery_box_2,
+                self.confwin.ui.centerx_box_3,
+            ),
+            dialog.center,
+        ):
+            box.setValue(value)
+        for box, value in zip(
+            (
+                self.confwin.ui.sizeX_box,
+                self.confwin.ui.sizey_box,
+                self.confwin.ui.sizeZ_box,
+            ),
+            dialog.size,
+        ):
+            box.setValue(value)
+        self.save_vina_configuration()
 
     def reset_vina_configuration(self):
         for box in (

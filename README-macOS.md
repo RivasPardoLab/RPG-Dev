@@ -36,7 +36,16 @@ Ligand Subset** can restrict the run.
 
 The Vina dialog preserves the published RPG defaults: 10 poses, energy range 4
 kcal/mol, and exhaustiveness 10. Center and box dimensions are supplied by the
-user.
+user. **Preview Docking Box** opens the receptor in RPG's built-in viewer. Drag
+to rotate, use the mouse wheel to zoom, and hold Shift while dragging to move
+the box in the current viewing plane. Center and size can also be entered to
+0.01 Å precision. **Use Box in Vina** transfers those values directly to
+`config.txt`.
+
+The viewer initially centers RPG's 60 × 60 × 60 Å box on the receptor. **Fit
+whole receptor (+4 Å)** is a geometric convenience, not a prediction of the
+binding site; focused docking should still use experimental, structural, or
+otherwise scientifically justified site information.
 
 The run creates numbered `*-out.pdbqt` pose files plus `affinities.csv` and
 `docking-manifest.json`. The manifest records the Vina version, configuration,

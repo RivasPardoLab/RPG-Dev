@@ -13,6 +13,15 @@ class ConfWindow(QDialog):
         QDialog.__init__(self)
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
+        for box in (
+            self.ui.centerx_box,
+            self.ui.centery_box_2,
+            self.ui.centerx_box_3,
+            self.ui.sizeX_box,
+            self.ui.sizey_box,
+            self.ui.sizeZ_box,
+        ):
+            box.setMinimumWidth(90)
+            box.setMaximumWidth(110)
         self.setWindowFlag(Qt.FramelessWindowHint)
-
 

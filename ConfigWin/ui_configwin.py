@@ -68,7 +68,7 @@ class Ui_Dialog(object):
 
         self.gridLayout.addWidget(self.center_label, 0, 0, 1, 1)
 
-        self.centerx_box = QSpinBox(self.frame)
+        self.centerx_box = QDoubleSpinBox(self.frame)
         self.centerx_box.setObjectName(u"centerx_box")
         self.centerx_box.setMinimumSize(QSize(0, 0))
         self.centerx_box.setMaximumSize(QSize(16000000, 16000000))
@@ -82,6 +82,8 @@ class Ui_Dialog(object):
         self.centerx_box.setFont(font)
         self.centerx_box.setMinimum(-1000)
         self.centerx_box.setMaximum(1000)
+        self.centerx_box.setDecimals(2)
+        self.centerx_box.setSingleStep(0.5)
 
         self.gridLayout.addWidget(self.centerx_box, 0, 1, 1, 1)
 
@@ -90,11 +92,13 @@ class Ui_Dialog(object):
 
         self.gridLayout.addWidget(self.center_label_2, 1, 0, 1, 1)
 
-        self.centery_box_2 = QSpinBox(self.frame)
+        self.centery_box_2 = QDoubleSpinBox(self.frame)
         self.centery_box_2.setObjectName(u"centery_box_2")
         self.centery_box_2.setMaximumSize(QSize(60, 30))
         self.centery_box_2.setMinimum(-1000)
         self.centery_box_2.setMaximum(1000)
+        self.centery_box_2.setDecimals(2)
+        self.centery_box_2.setSingleStep(0.5)
 
         self.gridLayout.addWidget(self.centery_box_2, 1, 1, 1, 1)
 
@@ -103,11 +107,13 @@ class Ui_Dialog(object):
 
         self.gridLayout.addWidget(self.center_label_6, 2, 0, 1, 1)
 
-        self.centerx_box_3 = QSpinBox(self.frame)
+        self.centerx_box_3 = QDoubleSpinBox(self.frame)
         self.centerx_box_3.setObjectName(u"centerx_box_3")
         self.centerx_box_3.setMaximumSize(QSize(60, 30))
         self.centerx_box_3.setMinimum(-1000)
         self.centerx_box_3.setMaximum(1000)
+        self.centerx_box_3.setDecimals(2)
+        self.centerx_box_3.setSingleStep(0.5)
 
         self.gridLayout.addWidget(self.centerx_box_3, 2, 1, 1, 1)
 
@@ -116,11 +122,13 @@ class Ui_Dialog(object):
 
         self.gridLayout.addWidget(self.center_label_3, 3, 0, 1, 1)
 
-        self.sizeX_box = QSpinBox(self.frame)
+        self.sizeX_box = QDoubleSpinBox(self.frame)
         self.sizeX_box.setObjectName(u"sizeX_box")
         self.sizeX_box.setMaximumSize(QSize(60, 30))
-        self.sizeX_box.setMinimum(-1000)
+        self.sizeX_box.setMinimum(0.5)
         self.sizeX_box.setMaximum(1000)
+        self.sizeX_box.setDecimals(2)
+        self.sizeX_box.setSingleStep(0.5)
         self.sizeX_box.setValue(60)
 
         self.gridLayout.addWidget(self.sizeX_box, 3, 1, 1, 1)
@@ -130,10 +138,13 @@ class Ui_Dialog(object):
 
         self.gridLayout.addWidget(self.center_label_4, 4, 0, 1, 1)
 
-        self.sizey_box = QSpinBox(self.frame)
+        self.sizey_box = QDoubleSpinBox(self.frame)
         self.sizey_box.setObjectName(u"sizey_box")
         self.sizey_box.setMaximumSize(QSize(60, 30))
+        self.sizey_box.setMinimum(0.5)
         self.sizey_box.setMaximum(1000)
+        self.sizey_box.setDecimals(2)
+        self.sizey_box.setSingleStep(0.5)
         self.sizey_box.setValue(60)
 
         self.gridLayout.addWidget(self.sizey_box, 4, 1, 1, 1)
@@ -143,10 +154,13 @@ class Ui_Dialog(object):
 
         self.gridLayout.addWidget(self.center_label_5, 5, 0, 1, 1)
 
-        self.sizeZ_box = QSpinBox(self.frame)
+        self.sizeZ_box = QDoubleSpinBox(self.frame)
         self.sizeZ_box.setObjectName(u"sizeZ_box")
         self.sizeZ_box.setMaximumSize(QSize(60, 30))
+        self.sizeZ_box.setMinimum(0.5)
         self.sizeZ_box.setMaximum(1000)
+        self.sizeZ_box.setDecimals(2)
+        self.sizeZ_box.setSingleStep(0.5)
         self.sizeZ_box.setValue(60)
 
         self.gridLayout.addWidget(self.sizeZ_box, 5, 1, 1, 1)
@@ -247,4 +261,3 @@ class Ui_Dialog(object):
         self.saveButton.setText(QCoreApplication.translate("Dialog", u"Save", None))
         self.resetButton.setText(QCoreApplication.translate("Dialog", u"Reset", None))
     # retranslateUi
-

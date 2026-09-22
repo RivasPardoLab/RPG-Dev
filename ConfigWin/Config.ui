@@ -108,19 +108,19 @@ font: 12pt &quot;Eight Bit Dragon&quot;;
 border: None;
 border-color: rgb(100, 100, 100);
 }
-QSpinBox{
+QSpinBox, QDoubleSpinBox{
 
 	border : 1px solid grey;
 	height: 30;
 width:55px;
 }
-QSpinBox::up-button {
+QSpinBox::up-button, QDoubleSpinBox::up-button {
 	width:25px;
 
 
 	
 }
-QSpinBox::down-button {
+QSpinBox::down-button, QDoubleSpinBox::down-button {
 	width:25px;
 
 }
@@ -141,7 +141,7 @@ QSpinBox::down-button {
        </widget>
       </item>
       <item row="2" column="1">
-       <widget class="QSpinBox" name="centerx_box_3">
+       <widget class="QDoubleSpinBox" name="centerx_box_3">
         <property name="maximumSize">
          <size>
           <width>16777215</width>
@@ -153,6 +153,12 @@ QSpinBox::down-button {
         </property>
         <property name="maximum">
          <number>1000</number>
+        </property>
+        <property name="decimals">
+         <number>2</number>
+        </property>
+        <property name="singleStep">
+         <double>0.500000000000000</double>
         </property>
        </widget>
       </item>
@@ -171,7 +177,7 @@ QSpinBox::down-button {
        </widget>
       </item>
       <item row="1" column="1">
-       <widget class="QSpinBox" name="centery_box_2">
+       <widget class="QDoubleSpinBox" name="centery_box_2">
         <property name="maximumSize">
          <size>
           <width>5353535</width>
@@ -184,10 +190,16 @@ QSpinBox::down-button {
         <property name="maximum">
          <number>1000</number>
         </property>
+        <property name="decimals">
+         <number>2</number>
+        </property>
+        <property name="singleStep">
+         <double>0.500000000000000</double>
+        </property>
        </widget>
       </item>
       <item row="0" column="1">
-       <widget class="QSpinBox" name="centerx_box">
+       <widget class="QDoubleSpinBox" name="centerx_box">
         <property name="minimumSize">
          <size>
           <width>0</width>
@@ -221,6 +233,12 @@ QSpinBox::down-button {
         <property name="maximum">
          <number>1000</number>
         </property>
+        <property name="decimals">
+         <number>2</number>
+        </property>
+        <property name="singleStep">
+         <double>0.500000000000000</double>
+        </property>
        </widget>
       </item>
       <item row="6" column="0">
@@ -250,7 +268,7 @@ QSpinBox::down-button {
        </widget>
       </item>
       <item row="3" column="1">
-       <widget class="QSpinBox" name="sizeX_box">
+       <widget class="QDoubleSpinBox" name="sizeX_box">
         <property name="maximumSize">
          <size>
           <width>53533</width>
@@ -258,10 +276,16 @@ QSpinBox::down-button {
          </size>
         </property>
         <property name="minimum">
-         <number>-1000</number>
+         <double>0.500000000000000</double>
         </property>
         <property name="maximum">
          <number>1000</number>
+        </property>
+        <property name="decimals">
+         <number>2</number>
+        </property>
+        <property name="singleStep">
+         <double>0.500000000000000</double>
         </property>
         <property name="value">
          <number>60</number>
@@ -276,15 +300,24 @@ QSpinBox::down-button {
        </widget>
       </item>
       <item row="4" column="1">
-       <widget class="QSpinBox" name="sizey_box">
+       <widget class="QDoubleSpinBox" name="sizey_box">
         <property name="maximumSize">
          <size>
           <width>535353</width>
           <height>33535</height>
          </size>
         </property>
+        <property name="minimum">
+         <double>0.500000000000000</double>
+        </property>
         <property name="maximum">
          <number>1000</number>
+        </property>
+        <property name="decimals">
+         <number>2</number>
+        </property>
+        <property name="singleStep">
+         <double>0.500000000000000</double>
         </property>
         <property name="value">
          <number>60</number>
@@ -306,15 +339,24 @@ QSpinBox::down-button {
        </widget>
       </item>
       <item row="5" column="1">
-       <widget class="QSpinBox" name="sizeZ_box">
+       <widget class="QDoubleSpinBox" name="sizeZ_box">
         <property name="maximumSize">
          <size>
           <width>5656565</width>
           <height>16777215</height>
          </size>
         </property>
+        <property name="minimum">
+         <double>0.500000000000000</double>
+        </property>
         <property name="maximum">
          <number>1000</number>
+        </property>
+        <property name="decimals">
+         <number>2</number>
+        </property>
+        <property name="singleStep">
+         <double>0.500000000000000</double>
         </property>
         <property name="value">
          <number>60</number>
