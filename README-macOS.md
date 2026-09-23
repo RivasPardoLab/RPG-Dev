@@ -1,4 +1,4 @@
-# RPG Stage 1–4A for macOS
+# RPG Stage 1–4B for macOS
 
 This branch is a conservative macOS edition of the RPG workflow through Vina
 docking, based on [RivasPardoLab/RPG-Dev](https://github.com/RivasPardoLab/RPG-Dev).
@@ -11,7 +11,9 @@ a user-cleaned protein PDB and prepares it as a rigid receptor with Meeko 0.8,
 or accepts an existing rigid receptor PDBQT. It retains RPG's original Vina
 search-box parameters and runs AutoDock Vina 1.2.7. Results are written to
 `VinaResults`. Stage 4A ranks and filters those results, exports the selected
-peptides, and analyzes amino-acid frequency at every sequence position.
+peptides, and analyzes amino-acid frequency at every sequence position. Stage
+4B displays the best Vina pose for any ranked peptide together with the
+receptor in the embedded cartoon viewer.
 
 Stage 3A deliberately calls Open Babel's `AddHydrogens()` just like the
 published RPG code. It does not select a pH, minimize the structures, or apply
@@ -36,11 +38,11 @@ Ligand Subset** can restrict the run.
 
 The Vina dialog preserves the published RPG defaults: 10 poses, energy range 4
 kcal/mol, and exhaustiveness 10. Center and box dimensions are supplied by the
-user. **Preview Docking Box** opens the receptor in RPG's built-in viewer. Drag
-to rotate, use the mouse wheel to zoom, and hold Shift while dragging to move
-the box in the current viewing plane. Center and size can also be entered to
-0.01 Å precision. **Use Box in Vina** transfers those values directly to
-`config.txt`.
+user. **Preview Docking Box** opens the receptor as a smoothed protein-backbone
+cartoon in RPG's built-in viewer. Drag to rotate, use the mouse wheel to zoom,
+and hold Shift while dragging to move the box in the current viewing plane.
+Center and size can also be entered to 0.01 Å precision. **Use Box in Vina**
+transfers those values directly to `config.txt`.
 
 The viewer initially centers RPG's 60 × 60 × 60 Å box on the receptor. **Fit
 whole receptor (+4 Å)** is a geometric convenience, not a prediction of the
@@ -52,7 +54,7 @@ The run creates numbered `*-out.pdbqt` pose files plus `affinities.csv` and
 and actual random seed for every ligand. Existing contents of `VinaResults`
 are never overwritten.
 
-## Stage 4 result analysis
+## Stage 4 result analysis and pose visualization
 
 After docking, choose **Go to Stage 4**. RPG loads `random.txt` and
 `VinaResults/affinities.csv`, preserves the original numeric mapping between
@@ -66,9 +68,17 @@ minimum frequency to those filtered peptide sequences and writes
 `Best-AminoAcids.csv`. An existing completed workspace can also be opened
 directly from Stage 4.
 
-Embedded receptor/peptide pose visualization is planned for Stage 4B. That
-viewer will render both the receptor and peptide as cartoons; no structural
-viewer is included in Stage 4A.
+Stage 4B adds **View Cartoon Pose**. Select a rank from the filtered table and
+open its best Vina pose in the embedded viewer. The receptor is shown as a blue
+cartoon and the peptide as an orange cartoon; drag to rotate and use the wheel
+to zoom. RPG reads the receptor from `docking-manifest.json`, falls back to a
+PDBQT in the workspace's `Receptor` folder, and asks for the receptor only when
+neither location is available.
+
+The pose viewer intentionally displays the first model in each `*-out.pdbqt`,
+which is Vina's best-scoring mode and corresponds to the affinity used by the
+ranking table. Visualization does not alter coordinates, rerun docking, or
+rescore the complex.
 
 ## Run from source
 

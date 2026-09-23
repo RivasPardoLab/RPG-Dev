@@ -1,4 +1,4 @@
-"""Interactive, dependency-free receptor and Vina search-box preview."""
+"""Interactive cartoon rendering for receptors, poses, and the Vina box."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from PyQt5.QtCore import QPoint, QPointF, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
+from PyQt5.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
 from PyQt5.QtWidgets import (
     QDialog,
     QDoubleSpinBox,
@@ -27,12 +27,18 @@ class AtomPoint:
     y: float
     z: float
     atom_type: str
+    atom_name: str = ""
+    residue_name: str = ""
+    chain_id: str = ""
+    residue_number: int = 0
+    insertion_code: str = ""
 
 
 @dataclass(frozen=True)
 class ReceptorGeometry:
     atoms: tuple[AtomPoint, ...]
     displayed_atoms: tuple[AtomPoint, ...]
+    cartoon_segments: tuple[tuple[AtomPoint, ...], ...]
     minimum: tuple[float, float, float]
     maximum: tuple[float, float, float]
 
@@ -45,6 +51,10 @@ class ReceptorGeometry:
     @property
     def span(self) -> tuple[float, float, float]:
         return tuple(high - low for low, high in zip(self.minimum, self.maximum))
+
+    @property
+    def cartoon_residue_count(self) -> int:
+        return sum(len(segment) for segment in self.cartoon_segments)
 
 
 def _parse_atom_line(line: str) -> AtomPoint:
@@ -60,7 +70,106 @@ def _parse_atom_line(line: str) -> AtomPoint:
 
     fields = line.split()
     atom_type = fields[-1] if fields else "C"
-    return AtomPoint(x, y, z, atom_type)
+    atom_name = line[12:16].strip()
+    residue_name = line[17:20].strip()
+    chain_id = line[21:22].strip()
+    insertion_code = line[26:27].strip()
+    try:
+        residue_number = int(line[22:26])
+    except ValueError:
+        try:
+            residue_number = int(fields[5])
+        except (IndexError, ValueError):
+            residue_number = 0
+    return AtomPoint(
+        x,
+        y,
+        z,
+        atom_type,
+        atom_name,
+        residue_name,
+        chain_id,
+        residue_number,
+        insertion_code,
+    )
+
+
+def _distance(first: AtomPoint, second: AtomPoint) -> float:
+    return math.sqrt(
+        (first.x - second.x) ** 2
+        + (first.y - second.y) ** 2
+        + (first.z - second.z) ** 2
+    )
+
+
+def build_cartoon_segments(
+    atoms: Sequence[AtomPoint], maximum_ca_distance: float = 6.0
+) -> tuple[tuple[AtomPoint, ...], ...]:
+    """Build ordered protein backbone segments from one C-alpha per residue."""
+    if maximum_ca_distance <= 0:
+        raise ValueError("maximum_ca_distance must be greater than zero")
+
+    residues = {}
+    for atom in atoms:
+        if atom.atom_name.upper() != "CA":
+            continue
+        key = (atom.chain_id, atom.residue_number, atom.insertion_code)
+        residues.setdefault(key, atom)
+
+    ordered = sorted(
+        residues.values(),
+        key=lambda atom: (atom.chain_id, atom.residue_number, atom.insertion_code),
+    )
+    segments = []
+    current = []
+    for atom in ordered:
+        if current and (
+            atom.chain_id != current[-1].chain_id
+            or _distance(current[-1], atom) > maximum_ca_distance
+        ):
+            segments.append(tuple(current))
+            current = []
+        current.append(atom)
+    if current:
+        segments.append(tuple(current))
+    return tuple(segments)
+
+
+def smooth_cartoon_trace(
+    points: Sequence[Sequence[float]], samples_per_span: int = 8
+) -> tuple[tuple[float, float, float], ...]:
+    """Interpolate a C-alpha trace with a Catmull-Rom spline."""
+    points = tuple(tuple(float(value) for value in point) for point in points)
+    if samples_per_span <= 0:
+        raise ValueError("samples_per_span must be greater than zero")
+    if len(points) < 3:
+        return points
+
+    smoothed = [points[0]]
+    for index in range(len(points) - 1):
+        p0 = points[max(0, index - 1)]
+        p1 = points[index]
+        p2 = points[index + 1]
+        p3 = points[min(len(points) - 1, index + 2)]
+        for sample in range(1, samples_per_span + 1):
+            t = sample / samples_per_span
+            t2 = t * t
+            t3 = t2 * t
+            smoothed.append(
+                tuple(
+                    0.5
+                    * (
+                        2 * p1[axis]
+                        + (-p0[axis] + p2[axis]) * t
+                        + (2 * p0[axis] - 5 * p1[axis] + 4 * p2[axis] - p3[axis])
+                        * t2
+                        + (-p0[axis] + 3 * p1[axis] - 3 * p2[axis] + p3[axis])
+                        * t3
+                    )
+                    for axis in range(3)
+                )
+            )
+    return tuple(smoothed)
 
 
 def load_receptor_geometry(
@@ -73,11 +182,19 @@ def load_receptor_geometry(
     if max_display_atoms <= 0:
         raise ValueError("max_display_atoms must be greater than zero")
 
-    atoms = tuple(
-        _parse_atom_line(line)
-        for line in receptor_path.read_text(encoding="utf-8").splitlines()
-        if line.startswith(("ATOM  ", "HETATM"))
-    )
+    atoms_list = []
+    found_model = False
+    for line in receptor_path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("MODEL"):
+            if found_model:
+                break
+            found_model = True
+            continue
+        if found_model and line.startswith("ENDMDL"):
+            break
+        if line.startswith(("ATOM  ", "HETATM")):
+            atoms_list.append(_parse_atom_line(line))
+    atoms = tuple(atoms_list)
     if not atoms:
         raise ValueError("The receptor contains no coordinates to display")
 
@@ -85,7 +202,8 @@ def load_receptor_geometry(
     maximum = tuple(max(getattr(atom, axis) for atom in atoms) for axis in "xyz")
     stride = max(1, math.ceil(len(atoms) / max_display_atoms))
     displayed = atoms[::stride]
-    return ReceptorGeometry(atoms, displayed, minimum, maximum)
+    cartoons = build_cartoon_segments(atoms)
+    return ReceptorGeometry(atoms, displayed, cartoons, minimum, maximum)
 
 
 ATOM_COLORS = {
@@ -117,9 +235,36 @@ class ProteinCanvas(QWidget):
         (0, 2, 6, 4), (1, 3, 7, 5),
     )
 
-    def __init__(self, geometry: ReceptorGeometry, parent=None):
+    def __init__(
+        self,
+        geometry: ReceptorGeometry,
+        parent=None,
+        overlay_geometry: Optional[ReceptorGeometry] = None,
+        show_box: bool = True,
+    ):
         super().__init__(parent)
         self.geometry = geometry
+        self.overlay_geometry = overlay_geometry
+        self.show_box = show_box
+        if overlay_geometry is None:
+            self.view_center = geometry.center
+            self.view_span = geometry.span
+        else:
+            view_minimum = tuple(
+                min(first, second)
+                for first, second in zip(geometry.minimum, overlay_geometry.minimum)
+            )
+            view_maximum = tuple(
+                max(first, second)
+                for first, second in zip(geometry.maximum, overlay_geometry.maximum)
+            )
+            self.view_center = tuple(
+                (low + high) / 2.0
+                for low, high in zip(view_minimum, view_maximum)
+            )
+            self.view_span = tuple(
+                high - low for low, high in zip(view_minimum, view_maximum)
+            )
         self.box_center = list(geometry.center)
         self.box_size = [60.0, 60.0, 60.0]
         self.yaw = math.radians(-35)
@@ -153,11 +298,14 @@ class ProteinCanvas(QWidget):
         return rotated_x, rotated_y, rotated_z
 
     def _scale(self) -> float:
-        extent = max(max(self.geometry.span), max(self.box_size), 1.0)
+        extents = [max(self.view_span), 1.0]
+        if self.show_box:
+            extents.append(max(self.box_size))
+        extent = max(extents)
         return max(0.1, min(self.width(), self.height()) * 0.72 / extent * self.zoom)
 
     def _project(self, point: Sequence[float]) -> tuple[QPointF, float]:
-        origin = self.geometry.center
+        origin = self.view_center
         relative = tuple(value - base for value, base in zip(point, origin))
         x, y, depth = self._rotate(relative)
         scale = self._scale()
@@ -178,54 +326,138 @@ class ProteinCanvas(QWidget):
             )
         ]
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.fillRect(self.rect(), QColor(16, 20, 26))
-
+    def _draw_atom_fallback(
+        self, painter: QPainter, geometry: ReceptorGeometry
+    ) -> None:
         projected_atoms = []
-        for atom in self.geometry.displayed_atoms:
+        for atom in geometry.displayed_atoms:
             position, depth = self._project((atom.x, atom.y, atom.z))
             projected_atoms.append((depth, position, atom.atom_type.upper()))
         projected_atoms.sort(key=lambda item: item[0])
 
-        depth_span = max(max(self.geometry.span), 1.0)
+        depth_span = max(max(geometry.span), 1.0)
         for depth, position, atom_type in projected_atoms:
             color = ATOM_COLORS.get(atom_type, QColor(125, 205, 145))
-            color.setAlpha(185)
+            color.setAlpha(170)
             radius = max(1.1, min(3.4, 2.0 + depth / depth_span))
             painter.setPen(Qt.NoPen)
             painter.setBrush(color)
             painter.drawEllipse(position, radius, radius)
 
-        projected_corners = [self._project(corner) for corner in self._box_corners()]
-        faces = sorted(
-            self.BOX_FACES,
-            key=lambda face: sum(projected_corners[index][1] for index in face) / 4,
-        )
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(30, 205, 235, 25))
-        for face in faces:
-            painter.drawPolygon(QPolygonF([projected_corners[index][0] for index in face]))
+    def _draw_cartoon(
+        self,
+        painter: QPainter,
+        geometry: ReceptorGeometry,
+        color: QColor,
+        width: float,
+    ) -> None:
+        traces = []
+        for segment in geometry.cartoon_segments:
+            coordinates = [(atom.x, atom.y, atom.z) for atom in segment]
+            trace = smooth_cartoon_trace(coordinates)
+            projected = [self._project(point) for point in trace]
+            mean_depth = sum(point[1] for point in projected) / len(projected)
+            traces.append((mean_depth, projected))
 
-        painter.setBrush(Qt.NoBrush)
-        painter.setPen(QPen(QColor(40, 225, 250), 2))
-        for start, end in self.BOX_EDGES:
-            painter.drawLine(projected_corners[start][0], projected_corners[end][0])
+        for _, projected in sorted(traces, key=lambda item: item[0]):
+            if len(projected) == 1:
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(color)
+                painter.drawEllipse(projected[0][0], width / 2, width / 2)
+                continue
+            path = QPainterPath(projected[0][0])
+            for point, _ in projected[1:]:
+                path.lineTo(point)
+            outline = QPen(QColor(18, 25, 31, 220), width + 3.0)
+            outline.setCapStyle(Qt.RoundCap)
+            outline.setJoinStyle(Qt.RoundJoin)
+            painter.setPen(outline)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawPath(path)
+            ribbon = QPen(color, width)
+            ribbon.setCapStyle(Qt.RoundCap)
+            ribbon.setJoinStyle(Qt.RoundJoin)
+            painter.setPen(ribbon)
+            painter.drawPath(path)
 
-        center_point, _ = self._project(self.box_center)
-        painter.setPen(QPen(QColor(255, 225, 95), 2))
-        painter.drawLine(center_point + QPointF(-7, 0), center_point + QPointF(7, 0))
-        painter.drawLine(center_point + QPointF(0, -7), center_point + QPointF(0, 7))
+            # Small C-alpha markers make short peptide cartoons unambiguous.
+            painter.setPen(QPen(color.lighter(125), 1))
+            painter.setBrush(color.lighter(115))
+            marker_radius = max(1.8, width * 0.24)
+            for atom in segment:
+                position, _ = self._project((atom.x, atom.y, atom.z))
+                painter.drawEllipse(position, marker_radius, marker_radius)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.fillRect(self.rect(), QColor(16, 20, 26))
+
+        if self.geometry.cartoon_segments:
+            self._draw_cartoon(
+                painter, self.geometry, QColor(100, 180, 225, 225), 7.5
+            )
+        else:
+            self._draw_atom_fallback(painter, self.geometry)
+
+        if self.overlay_geometry is not None:
+            if self.overlay_geometry.cartoon_segments:
+                self._draw_cartoon(
+                    painter,
+                    self.overlay_geometry,
+                    QColor(255, 155, 75, 245),
+                    9.0,
+                )
+            else:
+                self._draw_atom_fallback(painter, self.overlay_geometry)
+
+        if self.show_box:
+            projected_corners = [
+                self._project(corner) for corner in self._box_corners()
+            ]
+            faces = sorted(
+                self.BOX_FACES,
+                key=lambda face: sum(
+                    projected_corners[index][1] for index in face
+                )
+                / 4,
+            )
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(30, 205, 235, 25))
+            for face in faces:
+                painter.drawPolygon(
+                    QPolygonF([projected_corners[index][0] for index in face])
+                )
+
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(QColor(40, 225, 250), 2))
+            for start, end in self.BOX_EDGES:
+                painter.drawLine(
+                    projected_corners[start][0], projected_corners[end][0]
+                )
+
+            center_point, _ = self._project(self.box_center)
+            painter.setPen(QPen(QColor(255, 225, 95), 2))
+            painter.drawLine(
+                center_point + QPointF(-7, 0), center_point + QPointF(7, 0)
+            )
+            painter.drawLine(
+                center_point + QPointF(0, -7), center_point + QPointF(0, 7)
+            )
 
         painter.setFont(QFont("Helvetica", 10))
         painter.setPen(QColor(210, 220, 230))
-        painter.drawText(14, 24, "Drag: rotate   Shift+drag: move box   Wheel: zoom")
+        instructions = "Drag: rotate   Wheel: zoom"
+        if self.show_box:
+            instructions += "   Shift+drag: move box"
+        painter.drawText(14, 24, instructions)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.last_mouse_position = event.pos()
-            self.dragging_box = bool(event.modifiers() & Qt.ShiftModifier)
+            self.dragging_box = self.show_box and bool(
+                event.modifiers() & Qt.ShiftModifier
+            )
             self.setCursor(Qt.ClosedHandCursor)
 
     def mouseMoveEvent(self, event):
@@ -286,10 +518,12 @@ class DockingBoxDialog(QDialog):
         title = QLabel("AutoDock Vina search box")
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
         controls.addWidget(title)
+        segment_count = len(self.geometry.cartoon_segments)
+        segment_word = "segment" if segment_count == 1 else "segments"
         details = QLabel(
             f"{self.receptor_path.name}\n"
-            f"{len(self.geometry.atoms):,} atoms "
-            f"({len(self.geometry.displayed_atoms):,} displayed)"
+            f"Cartoon: {self.geometry.cartoon_residue_count:,} residues in "
+            f"{segment_count:,} backbone {segment_word}"
         )
         details.setWordWrap(True)
         controls.addWidget(details)

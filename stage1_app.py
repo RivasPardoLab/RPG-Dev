@@ -30,6 +30,7 @@ from stage2 import run_stage2
 from stage3a import run_stage3a
 from stage3_receptor import prepare_rigid_receptor
 from docking_box_viewer import DockingBoxDialog
+from pose_viewer import DockingPoseDialog
 from stage3b import (
     VinaConfig,
     run_vina_docking,
@@ -40,6 +41,7 @@ from stage4 import (
     analyze_position_enrichment,
     filter_ranked_results,
     load_ranked_results,
+    resolve_workspace_receptor,
     write_best_peptides,
     write_position_enrichment,
 )
@@ -190,6 +192,7 @@ class RPGWindow(QMainWindow):
         self.ligand_files = []
         self.vina_config = None
         self.stage4_workspace = None
+        self.stage4_receptor_file = None
         self.stage4_results = []
         self.stage4_filtered = []
         self.old_position = QPoint()
@@ -341,6 +344,7 @@ class RPGWindow(QMainWindow):
         self.ui.tableWidget.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.ui.tableWidget.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.ui.tableWidget.setAlternatingRowColors(False)
+        self.ui.frame_6.setMinimumHeight(205)
         self.ui.label_19.setText("Minimum frequency among filtered peptides")
         self.ui.confidenceSpinbox.setValue(50)
         self.ui.horizontalSlider.setValue(50)
@@ -348,6 +352,13 @@ class RPGWindow(QMainWindow):
         self.ui.tableWidget_2.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.ui.tableWidget_2.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.ui.tableWidget_2.setAlternatingRowColors(False)
+
+        self.ui.label_20.setText("Ranked docking pose")
+        self.ui.spinBox_pymol.setPrefix("Rank ")
+        self.ui.pymol_button.setText("View Cartoon Pose")
+        self.ui.resetRPGButton.hide()
+        self.ui.frame_14.setMinimumHeight(70)
+        self.ui.frame_14.setMaximumHeight(80)
 
         self.ui.frame_Selectpeptides.hide()
         self.ui.frame_6.hide()
@@ -380,6 +391,10 @@ class RPGWindow(QMainWindow):
         self.ui.choosedir_stage4.clicked.connect(self.choose_stage4_workspace)
         self.ui.bestpepButton.clicked.connect(self.rank_stage4_results)
         self.ui.pickAAButton.clicked.connect(self.analyze_stage4_sequences)
+        self.ui.pymol_button.clicked.connect(self.open_stage4_pose_viewer)
+        self.ui.tableWidget.cellClicked.connect(
+            lambda row, _column: self.ui.spinBox_pymol.setValue(row + 1)
+        )
         self.confwin.ui.saveButton.clicked.connect(self.save_vina_configuration)
         self.confwin.ui.resetButton.clicked.connect(self.reset_vina_configuration)
         self.ui.xButton.clicked.connect(self.close)
@@ -477,6 +492,15 @@ class RPGWindow(QMainWindow):
             return False
 
         self.stage4_workspace = workspace
+        if (
+            self.output_file is not None
+            and workspace == self.output_file.parent
+            and self.receptor_file is not None
+            and self.receptor_file.is_file()
+        ):
+            self.stage4_receptor_file = self.receptor_file
+        else:
+            self.stage4_receptor_file = resolve_workspace_receptor(workspace)
         self.stage4_results = results
         self.stage4_filtered = []
         self.top_n_box.setMaximum(len(results))
@@ -496,6 +520,7 @@ class RPGWindow(QMainWindow):
         self.ui.frame_6.hide()
         self.ui.frame_10.hide()
         self.ui.tableWidget_2.hide()
+        self.ui.frame_14.hide()
         self.ui.tableWidget.clearContents()
         self.ui.tableWidget.setRowCount(0)
         self.ui.tableWidget_2.clearContents()
@@ -569,6 +594,9 @@ class RPGWindow(QMainWindow):
         self.ui.frame_6.show()
         self.ui.frame_10.show()
         self.ui.tableWidget_2.hide()
+        self.ui.spinBox_pymol.setRange(1, len(selected))
+        self.ui.spinBox_pymol.setValue(1)
+        self.ui.frame_14.show()
         self.ui.label_stage4.setText(
             f"Ranked {len(selected):,} of {len(self.stage4_results):,} results. "
             f"Exported {report.name} in {self.stage4_workspace}."
@@ -610,6 +638,43 @@ class RPGWindow(QMainWindow):
             f"Found {len(enriched):,} position/amino-acid combinations at or above "
             f"{self.ui.confidenceSpinbox.value()}%. Exported {report.name}."
         )
+
+    def open_stage4_pose_viewer(self):
+        if not self.stage4_filtered or self.stage4_workspace is None:
+            return
+        rank = self.ui.spinBox_pymol.value()
+        if rank > len(self.stage4_filtered):
+            return
+        result = self.stage4_filtered[rank - 1]
+        pose_path = self.stage4_workspace / "VinaResults" / result.result_file
+
+        receptor_path = self.stage4_receptor_file
+        if receptor_path is None or not receptor_path.is_file():
+            selected, _ = QFileDialog.getOpenFileName(
+                self,
+                "Select the rigid receptor used for docking",
+                str(self.stage4_workspace / "Receptor"),
+                "PDBQT files (*.pdbqt)",
+            )
+            if not selected:
+                return
+            receptor_path = Path(selected).expanduser().resolve()
+            self.stage4_receptor_file = receptor_path
+
+        try:
+            dialog = DockingPoseDialog(
+                receptor_path,
+                pose_path,
+                result.sequence,
+                result.affinity,
+                parent=self,
+            )
+        except Exception as error:
+            self._show_message(
+                str(error), QMessageBox.Critical, "Cartoon pose viewer failed"
+            )
+            return
+        dialog.exec_()
 
     def open_peptide_selector(self):
         self.ui.setpepButton.setEnabled(False)
@@ -691,6 +756,7 @@ class RPGWindow(QMainWindow):
         self.ligand_files = []
         self.vina_config = None
         self.stage4_workspace = None
+        self.stage4_receptor_file = None
         self.stage4_results = []
         self.stage4_filtered = []
         self.ui.selectprotein_stage3Button.setText("Prepare Receptor from PDB")
@@ -705,6 +771,7 @@ class RPGWindow(QMainWindow):
         self.ui.frame_6.hide()
         self.ui.frame_10.hide()
         self.ui.tableWidget_2.hide()
+        self.ui.frame_14.hide()
         self.ui.runchimButton.setEnabled(True)
         self.ui.label_working.hide()
         self.ui.label_done.hide()

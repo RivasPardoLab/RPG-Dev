@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import math
 from collections import Counter
 from dataclasses import dataclass
@@ -26,6 +27,36 @@ class PositionEnrichment:
     amino_acid: str
     count: int
     frequency_percent: float
+
+
+def resolve_workspace_receptor(workspace: Path) -> Optional[Path]:
+    """Find the receptor recorded by Stage 3B, with a portable local fallback."""
+    workspace = Path(workspace).expanduser().resolve()
+    manifest_path = workspace / "VinaResults" / "docking-manifest.json"
+    manifest_receptor = None
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest_receptor = manifest.get("receptor")
+        except (OSError, json.JSONDecodeError, AttributeError):
+            manifest_receptor = None
+
+    if isinstance(manifest_receptor, str) and manifest_receptor.strip():
+        candidate = Path(manifest_receptor).expanduser()
+        if not candidate.is_absolute():
+            candidate = workspace / candidate
+        if candidate.is_file():
+            return candidate.resolve()
+        portable = workspace / "Receptor" / Path(manifest_receptor).name
+        if portable.is_file():
+            return portable.resolve()
+
+    receptor_directory = workspace / "Receptor"
+    if receptor_directory.is_dir():
+        candidates = sorted(receptor_directory.glob("*.pdbqt"))
+        if candidates:
+            return candidates[0].resolve()
+    return None
 
 
 def _read_sequences(path: Path) -> list[str]:

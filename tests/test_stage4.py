@@ -1,4 +1,5 @@
 import csv
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,6 +8,7 @@ from stage4 import (
     analyze_position_enrichment,
     filter_ranked_results,
     load_ranked_results,
+    resolve_workspace_receptor,
     write_best_peptides,
     write_position_enrichment,
 )
@@ -107,6 +109,23 @@ class Stage4Tests(unittest.TestCase):
 
             with self.assertRaises(FileNotFoundError):
                 load_ranked_results(workspace)
+
+    def test_receptor_is_resolved_from_manifest_or_portable_workspace_copy(self):
+        with tempfile.TemporaryDirectory() as temp_name:
+            workspace = _make_workspace(Path(temp_name))
+            receptor_directory = workspace / "Receptor"
+            receptor_directory.mkdir()
+            receptor = receptor_directory / "protein.pdbqt"
+            receptor.write_text("ATOM\n", encoding="utf-8")
+            manifest = workspace / "VinaResults" / "docking-manifest.json"
+            manifest.write_text(
+                json.dumps({"receptor": "/missing/location/protein.pdbqt"}),
+                encoding="utf-8",
+            )
+
+            resolved = resolve_workspace_receptor(workspace)
+
+            self.assertEqual(resolved, receptor.resolve())
 
 
 if __name__ == "__main__":
