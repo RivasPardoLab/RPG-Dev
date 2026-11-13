@@ -16,7 +16,8 @@ Ensemble and LightDock are intentionally excluded from this archived version.
 
 The distributed applications include Python, Qt, Open Babel, Meeko, RDKit,
 PeptideBuilder and AutoDock Vina. End users do not need to install those tools
-separately.
+separately. Every portable package and installer includes the same English
+`README.txt` and the MIT `LICENSE.txt`.
 
 ## Release artifacts
 
@@ -40,10 +41,12 @@ Vina 1.2.7 executable, run the complete unit-test suite, create the frozen
 application, and run an internal package test that performs PDB generation,
 PDBQT conversion and a minimal real Vina docking.
 
-The workflow can be started manually. Pushing a `v2.0.*` tag additionally
-creates a GitHub Release and attaches the portable packages, installers and
-SHA-256 files. A manual run only creates downloadable Actions artifacts and
-does not publish a release.
+The workflow can be started manually or by pushing a `v2.0.*` tag. It creates
+downloadable Actions artifacts but deliberately does not publish them in the
+source repository. Final binaries are published in the dedicated
+[`RPG-Software`](https://github.com/RivasPardoLab/RPG-Software) repository;
+source tags and maintenance branches remain in
+[`RPG-Dev`](https://github.com/RivasPardoLab/RPG-Dev).
 
 For a local native build, install Python 3.12 and then run:
 

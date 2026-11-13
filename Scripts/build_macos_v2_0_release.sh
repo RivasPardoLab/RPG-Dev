@@ -101,11 +101,21 @@ fi
 codesign --force --deep --sign - "$app_path"
 codesign --verify --deep --strict "$app_path"
 
+package_staging="$build_dir/release-package"
+package_root="$package_staging/$app_name"
+rm -rf "$package_staging"
+mkdir -p "$package_root"
+ditto "$app_path" "$package_root/$app_name.app"
+cp "$project_dir/README-RPG-v2.0-release.md" "$package_root/README.txt"
+cp "$project_dir/LICENSE" "$package_root/LICENSE.txt"
+cp "$project_dir/README-RPG-v2.0-release.md" "$release_dir/README.txt"
+cp "$project_dir/LICENSE" "$release_dir/LICENSE.txt"
+
 zip_path="$release_dir/$app_name.zip"
 if [[ -e "$zip_path" ]]; then
     mv "$zip_path" "$zip_path.previous-$(date +%Y%m%d-%H%M%S)"
 fi
-ditto -c -k --sequesterRsrc --keepParent "$app_path" "$zip_path"
+ditto -c -k --sequesterRsrc --keepParent "$package_root" "$zip_path"
 
 dmg_path="$release_dir/$app_name.dmg"
 if [[ -e "$dmg_path" ]]; then
@@ -113,7 +123,7 @@ if [[ -e "$dmg_path" ]]; then
 fi
 if hdiutil create \
     -volname "RPG macOS 2.0 $architecture_label" \
-    -srcfolder "$app_path" \
+    -srcfolder "$package_root" \
     -ov \
     -format UDZO \
     "$dmg_path"; then
