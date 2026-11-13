@@ -3,6 +3,7 @@
 __pycache__/
 *.py[cod]
 build/
+build-v2.0-*/
 dist/
 work/
 *.spec
