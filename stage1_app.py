@@ -172,7 +172,7 @@ class RPGWindow(QMainWindow):
         super().__init__()
         self.ui = Ui_Window()
         self.ui.setupUi(self)
-        self.setWindowTitle("RPG — Peptide Library and AutoDock Vina")
+        self.setWindowTitle("RPG macOS 2.0 — Peptide Library and AutoDock Vina")
         self.setWindowFlag(Qt.FramelessWindowHint)
         self.resize(1000, 800)
 
@@ -1229,7 +1229,8 @@ class RPGWindow(QMainWindow):
 def main() -> int:
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     app = QApplication(sys.argv)
-    app.setApplicationName("RPG macOS")
+    app.setApplicationName("RPG macOS 2.0")
+    app.setApplicationVersion("2.0.0")
     app.setOrganizationName("RivasPardoLab")
     QtGui.QFontDatabase.addApplicationFont(str(APP_ROOT / "eight-bit-dragon.otf"))
     app.setWindowIcon(QtGui.QIcon(str(APP_ROOT / "MainWin" / "icons" / "Lab2.png")))

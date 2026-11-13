@@ -1,4 +1,4 @@
-# RPG Stage 1–4B for macOS
+# RPG macOS 2.0.0 — Stage 1–4B
 
 This branch is a conservative macOS edition of the RPG workflow through Vina
 docking, based on [RivasPardoLab/RPG-Dev](https://github.com/RivasPardoLab/RPG-Dev).
@@ -95,11 +95,12 @@ conda activate rpg-macos
 zsh Scripts/build_macos.sh
 ```
 
-The build creates `dist/RPG-macOS.app` and a distributable DMG. If macOS does
-not permit disk-image creation in the current environment, the script creates
-`dist/RPG-macOS.zip` instead. The application is ad-hoc signed for local
-use, but it is not notarized by Apple. On another Mac, the first launch may
-require Control-clicking the app and choosing **Open**.
+The final archived release is built with
+`Scripts/build_macos_v2_0_release.sh` for both ARM64 and Intel. See
+`README-RPG-macOS-v2.0-release.md` for the source boundary, artifact layout and
+reproducible commands. The applications are ad-hoc signed for local use but
+are not notarized by Apple. On another Mac, the first launch may require
+Control-clicking the app and choosing **Open**.
 
 ## Test
 
