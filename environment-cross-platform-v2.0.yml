@@ -1,0 +1,8 @@
+name: rpg-v2.0-cross-platform
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - -r requirements-cross-platform-v2.0.txt

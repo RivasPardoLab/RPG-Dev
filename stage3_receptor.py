@@ -68,8 +68,8 @@ def prepare_rigid_receptor(source_pdb: Path, workspace: Path) -> Path:
         )
     except ImportError as error:
         raise RuntimeError(
-            "Meeko receptor preparation is unavailable. Recreate the macOS "
-            "environment from environment-macos.yml."
+            "Meeko receptor preparation is unavailable. Recreate the RPG 2.0 "
+            "environment for your operating system."
         ) from error
 
     pdb_string = source_pdb.read_text(encoding="utf-8")

@@ -2,10 +2,17 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from subprocess import CompletedProcess
+from unittest.mock import patch
 
 from stage2 import build_peptide_pdb
 from stage3a import convert_pdb_to_pdbqt
-from stage3b import VinaConfig, run_vina_docking, write_vina_config
+from stage3b import (
+    VinaConfig,
+    _dock_ligand_with_vina_executable,
+    run_vina_docking,
+    write_vina_config,
+)
 
 
 def _make_inputs(workspace: Path):
@@ -38,6 +45,46 @@ def _config():
 
 
 class Stage3BTests(unittest.TestCase):
+    def test_command_line_vina_backend_preserves_rpg_parameters(self):
+        with tempfile.TemporaryDirectory() as temp_name:
+            workspace = Path(temp_name)
+            receptor, ligand = _make_inputs(workspace)
+            executable = workspace / "vina-test"
+            executable.touch()
+            destination = workspace / "pose.pdbqt"
+
+            def fake_run(command, **kwargs):
+                if "--version" in command:
+                    return CompletedProcess(command, 0, "AutoDock Vina v1.2.7\n", "")
+                output = Path(command[command.index("--out") + 1])
+                atom = next(
+                    line
+                    for line in ligand.read_text(encoding="utf-8").splitlines()
+                    if line.startswith("ATOM  ")
+                )
+                output.write_text(
+                    "MODEL 1\nREMARK VINA RESULT:    -4.500      0.000      0.000\n"
+                    + atom
+                    + "\nENDMDL\n",
+                    encoding="utf-8",
+                )
+                self.assertEqual(command[command.index("--exhaustiveness") + 1], "1")
+                self.assertEqual(command[command.index("--num_modes") + 1], "2")
+                self.assertEqual(command[command.index("--energy_range") + 1], "4")
+                return CompletedProcess(command, 0, "Random seed: 12345\n", "")
+
+            with patch("stage3b.find_vina_executable", return_value=executable), patch(
+                "stage3b.subprocess.run", side_effect=fake_run
+            ):
+                metadata = _dock_ligand_with_vina_executable(
+                    receptor, ligand, destination, _config()
+                )
+
+            self.assertTrue(destination.is_file())
+            self.assertEqual(metadata["version"], "1.2.7")
+            self.assertEqual(metadata["interface"], "command line")
+            self.assertEqual(metadata["seed"], 12345)
+
     def test_config_preserves_rpg_parameters(self):
         with tempfile.TemporaryDirectory() as temp_name:
             path = write_vina_config(Path(temp_name) / "config.txt", _config())

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=RPG 2.0
+Comment=Peptide library generation and AutoDock Vina docking
+Exec=RPG-2.0
+Icon=rpg-2.0
+Categories=Science;Education;
+Terminal=false

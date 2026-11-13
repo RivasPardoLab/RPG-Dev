@@ -1,4 +1,7 @@
-# RPG macOS 2.0.0 — Final archived release
+# RPG macOS 2.0.0 — archived macOS packages
+
+> RPG 2.0 is now documented as one cross-platform release. See
+> `README-RPG-v2.0-release.md` for Windows, Linux and shared release details.
 
 RPG macOS 2.0 is the first complete native macOS port of the original
 RivasPardoLab RPG workflow. The upstream project was packaged for Windows: its

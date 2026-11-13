@@ -1,0 +1,166 @@
+name: Build RPG 2.0 for Windows and Linux
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v2.0.*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-x86-64:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-cross-platform-v2.0.txt
+
+      - name: Install RPG dependencies
+        run: python -m pip install --requirement requirements-cross-platform-v2.0.txt
+
+      - name: Download official AutoDock Vina 1.2.7
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force tools | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_win.exe" -OutFile "tools/vina_1.2.7_win.exe"
+          & "tools/vina_1.2.7_win.exe" --version
+
+      - name: Run source tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+          RPG_VINA_EXECUTABLE: ${{ github.workspace }}\tools\vina_1.2.7_win.exe
+        run: python -m unittest discover -s tests -v
+
+      - name: Build portable Windows package
+        run: python Scripts/build_cross_platform_v2_0.py --vina-binary tools/vina_1.2.7_win.exe
+
+      - name: Test the frozen Windows application
+        shell: pwsh
+        run: |
+          $exe = "dist/RPG-Peptides-2.0.0/Windows-x86_64/RPG-Windows-v2.0-x86_64/RPG-2.0.exe"
+          $report = Join-Path $env:RUNNER_TEMP "rpg-windows-self-test.json"
+          $process = Start-Process -FilePath $exe -ArgumentList "--self-test", $report -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Frozen RPG self-test exited with $($process.ExitCode)" }
+          $result = Get-Content $report -Raw | ConvertFrom-Json
+          if ($result.status -ne "ok" -or -not $result.docking_pose_created) { throw (Get-Content $report -Raw) }
+          Get-Content $report
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress --yes
+          $release = (Resolve-Path "dist/RPG-Peptides-2.0.0/Windows-x86_64").Path
+          $env:RPG_PACKAGE_DIR = (Resolve-Path "$release/RPG-Windows-v2.0-x86_64").Path
+          $env:RPG_RELEASE_DIR = $release
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "packaging\windows\RPG-v2.0.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+          $files = Get-ChildItem $release -File | Where-Object { $_.Extension -in ".zip", ".exe" }
+          $lines = foreach ($file in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 $file.FullName).Hash.ToLowerInvariant()
+            "$hash  $($file.Name)"
+          }
+          Set-Content -Path "$release/SHA256SUMS-Windows-x86_64.txt" -Value $lines -Encoding ascii
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPG-2.0-Windows-x86-64
+          if-no-files-found: error
+          path: |
+            dist/RPG-Peptides-2.0.0/Windows-x86_64/*.zip
+            dist/RPG-Peptides-2.0.0/Windows-x86_64/*-Setup.exe
+            dist/RPG-Peptides-2.0.0/Windows-x86_64/SHA256SUMS-Windows-x86_64.txt
+
+  linux-x86-64:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-cross-platform-v2.0.txt
+
+      - name: Install RPG dependencies
+        run: python -m pip install --requirement requirements-cross-platform-v2.0.txt
+
+      - name: Download official AutoDock Vina 1.2.7
+        run: |
+          mkdir -p tools
+          curl --fail --location --output tools/vina_1.2.7_linux_x86_64 "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64"
+          chmod +x tools/vina_1.2.7_linux_x86_64
+          tools/vina_1.2.7_linux_x86_64 --version
+
+      - name: Run source tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+          RPG_VINA_EXECUTABLE: ${{ github.workspace }}/tools/vina_1.2.7_linux_x86_64
+        run: python -m unittest discover -s tests -v
+
+      - name: Build portable Linux package
+        run: python Scripts/build_cross_platform_v2_0.py --vina-binary tools/vina_1.2.7_linux_x86_64
+
+      - name: Test the frozen Linux application
+        run: |
+          executable="dist/RPG-Peptides-2.0.0/Linux-x86_64/RPG-Linux-v2.0-x86_64/RPG-2.0"
+          report="$RUNNER_TEMP/rpg-linux-self-test.json"
+          QT_QPA_PLATFORM=offscreen "$executable" --self-test "$report"
+          python -c 'import json,sys; data=json.load(open(sys.argv[1])); assert data["status"] == "ok" and data["docking_pose_created"], data' "$report"
+          cat "$report"
+
+      - name: Build Linux AppImage
+        run: |
+          release="dist/RPG-Peptides-2.0.0/Linux-x86_64"
+          appdir="$RUNNER_TEMP/RPG-2.0.AppDir"
+          mkdir -p "$appdir/usr/lib/rpg"
+          cp -a "$release/RPG-Linux-v2.0-x86_64/." "$appdir/usr/lib/rpg/"
+          cp packaging/linux/AppRun "$appdir/AppRun"
+          cp packaging/linux/rpg-2.0.desktop "$appdir/rpg-2.0.desktop"
+          cp MainWin/icons/Lab2.png "$appdir/rpg-2.0.png"
+          chmod +x "$appdir/AppRun" "$appdir/usr/lib/rpg/RPG-2.0"
+          curl --fail --location --output "$RUNNER_TEMP/appimagetool.AppImage" "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x "$RUNNER_TEMP/appimagetool.AppImage"
+          ARCH=x86_64 "$RUNNER_TEMP/appimagetool.AppImage" --appimage-extract-and-run "$appdir" "$release/RPG-Linux-v2.0-x86_64.AppImage"
+          (cd "$release" && sha256sum RPG-Linux-v2.0-x86_64.tar.gz RPG-Linux-v2.0-x86_64.AppImage > SHA256SUMS-Linux-x86_64.txt)
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPG-2.0-Linux-x86-64
+          if-no-files-found: error
+          path: |
+            dist/RPG-Peptides-2.0.0/Linux-x86_64/*.tar.gz
+            dist/RPG-Peptides-2.0.0/Linux-x86_64/*.AppImage
+            dist/RPG-Peptides-2.0.0/Linux-x86_64/SHA256SUMS-Linux-x86_64.txt
+
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/v2.0.')
+    needs:
+      - windows-x86-64
+      - linux-x86-64
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish GitHub Release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release-assets/*

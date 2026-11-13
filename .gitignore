@@ -7,3 +7,4 @@ build-v2.0-*/
 dist/
 work/
 *.spec
+tools/

@@ -1,5 +1,6 @@
-"""macOS desktop interface for RPG Stage 1 through Stage 4 result analysis."""
+"""Desktop interface for RPG Stage 1 through Stage 4 result analysis."""
 
+import platform
 import sys
 from pathlib import Path
 
@@ -48,6 +49,11 @@ from stage4 import (
 
 
 APP_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+PLATFORM_NAME = {
+    "Darwin": "macOS",
+    "Windows": "Windows",
+    "Linux": "Linux",
+}.get(platform.system(), platform.system())
 
 
 def default_documents_directory() -> Path:
@@ -172,7 +178,9 @@ class RPGWindow(QMainWindow):
         super().__init__()
         self.ui = Ui_Window()
         self.ui.setupUi(self)
-        self.setWindowTitle("RPG macOS 2.0 — Peptide Library and AutoDock Vina")
+        self.setWindowTitle(
+            f"RPG 2.0 ({PLATFORM_NAME}) — Peptide Library and AutoDock Vina"
+        )
         self.setWindowFlag(Qt.FramelessWindowHint)
         self.resize(1000, 800)
 
@@ -1229,7 +1237,7 @@ class RPGWindow(QMainWindow):
 def main() -> int:
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     app = QApplication(sys.argv)
-    app.setApplicationName("RPG macOS 2.0")
+    app.setApplicationName("RPG 2.0")
     app.setApplicationVersion("2.0.0")
     app.setOrganizationName("RivasPardoLab")
     QtGui.QFontDatabase.addApplicationFont(str(APP_ROOT / "eight-bit-dragon.otf"))

@@ -5,10 +5,18 @@ from __future__ import annotations
 import csv
 import json
 import math
+import os
+import re
+import shutil
+import subprocess
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Callable, Optional, Sequence
+
+
+APP_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 
 
 @dataclass(frozen=True)
@@ -146,21 +154,150 @@ def _validate_vina_output(path: Path) -> float:
     raise ValueError(f"Vina produced no affinity value: {path.name}")
 
 
+def find_vina_executable() -> Optional[Path]:
+    """Locate an official Vina executable bundled with RPG or on PATH."""
+    candidates = []
+    configured = os.environ.get("RPG_VINA_EXECUTABLE")
+    if configured:
+        candidates.append(Path(configured).expanduser())
+
+    names = ("vina.exe", "vina_1.2.7_win.exe") if sys.platform == "win32" else (
+        "vina",
+        "vina_1.2.7_linux_x86_64",
+    )
+    for name in names:
+        candidates.extend((APP_ROOT / name, APP_ROOT / "bin" / name))
+        on_path = shutil.which(name)
+        if on_path:
+            candidates.append(Path(on_path))
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
+def vina_backend_info() -> dict:
+    """Describe the Vina backend available on the current platform."""
+    try:
+        import vina
+
+        return {
+            "engine": "AutoDock Vina",
+            "version": vina.__version__,
+            "interface": "Python bindings",
+        }
+    except ImportError:
+        executable = find_vina_executable()
+        if executable is None:
+            raise RuntimeError(
+                "AutoDock Vina is unavailable. Reinstall the RPG 2.0 package "
+                "for this operating system."
+            )
+        return vina_executable_info(executable)
+
+
+def vina_executable_info(executable: Path) -> dict:
+    completed = subprocess.run(
+        [str(executable), "--version"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    version_text = (completed.stdout + "\n" + completed.stderr).strip()
+    match = re.search(r"(?:AutoDock\s+)?Vina\s+v?([0-9.]+)", version_text, re.I)
+    return {
+        "engine": "AutoDock Vina",
+        "version": match.group(1) if match else "bundled executable",
+        "interface": "command line",
+        "executable": str(executable),
+    }
+
+
+def _dock_ligand_with_vina_executable(
+    receptor: Path,
+    ligand: Path,
+    destination: Path,
+    config: VinaConfig,
+) -> dict:
+    executable = find_vina_executable()
+    if executable is None:
+        raise RuntimeError(
+            "AutoDock Vina is unavailable. Reinstall the RPG 2.0 package "
+            "for this operating system."
+        )
+
+    command = [
+        str(executable),
+        "--receptor",
+        str(receptor),
+        "--ligand",
+        str(ligand),
+        "--out",
+        str(destination),
+        "--center_x",
+        str(config.center_x),
+        "--center_y",
+        str(config.center_y),
+        "--center_z",
+        str(config.center_z),
+        "--size_x",
+        str(config.size_x),
+        "--size_y",
+        str(config.size_y),
+        "--size_z",
+        str(config.size_z),
+        "--exhaustiveness",
+        str(config.exhaustiveness),
+        "--num_modes",
+        str(config.num_modes),
+        "--energy_range",
+        str(config.energy_range),
+        "--cpu",
+        "0",
+        "--seed",
+        "0",
+        "--verbosity",
+        "0",
+    ]
+    creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+        creationflags=creation_flags,
+    )
+    if completed.returncode != 0:
+        details = (completed.stderr or completed.stdout).strip()
+        raise RuntimeError(f"AutoDock Vina failed for {ligand.name}: {details}")
+
+    output = completed.stdout + "\n" + completed.stderr
+    seed_match = re.search(r"random seed:\s*(-?\d+)", output, re.I)
+    backend = vina_executable_info(executable)
+    return {
+        "engine": backend["engine"],
+        "version": backend["version"],
+        "interface": backend["interface"],
+        "seed": int(seed_match.group(1)) if seed_match else 0,
+    }
+
+
 def dock_ligand_with_vina(
     receptor: Path,
     ligand: Path,
     destination: Path,
     config: VinaConfig,
 ) -> dict:
-    """Dock one ligand with the official AutoDock Vina Python bindings."""
+    """Dock one ligand with the official Vina binding or bundled executable."""
     try:
         import vina
         from vina import Vina
-    except ImportError as error:
-        raise RuntimeError(
-            "AutoDock Vina is not installed. Recreate the macOS environment "
-            "from environment-macos.yml."
-        ) from error
+    except ImportError:
+        return _dock_ligand_with_vina_executable(
+            receptor, ligand, destination, config
+        )
 
     engine = Vina(sf_name="vina", cpu=0, seed=0, verbosity=0)
     seed = engine.info()["seed"]
@@ -177,7 +314,12 @@ def dock_ligand_with_vina(
         energy_range=config.energy_range,
         overwrite=True,
     )
-    return {"engine": "AutoDock Vina", "version": vina.__version__, "seed": seed}
+    return {
+        "engine": "AutoDock Vina",
+        "version": vina.__version__,
+        "interface": "Python bindings",
+        "seed": seed,
+    }
 
 
 def run_vina_docking(
