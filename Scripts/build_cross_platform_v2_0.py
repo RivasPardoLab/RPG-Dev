@@ -89,7 +89,7 @@ def main() -> int:
                 None,
             )
 
-        plugin_marker = distribution_file("formats.so")
+        plugin_marker = distribution_file("pdbqtformat.so")
         data_marker = distribution_file("atomtyp.txt")
         if plugin_marker is None:
             raise SystemExit("Open Babel plugins were not found in openbabel-wheel")

@@ -27,7 +27,7 @@ def configure_packaged_openbabel() -> None:
         ),
     }
     markers = {
-        "BABEL_LIBDIR": "formats.so",
+        "BABEL_LIBDIR": "pdbqtformat.so",
         "BABEL_DATADIR": "atomtyp.txt",
     }
     for variable, candidates in locations.items():
