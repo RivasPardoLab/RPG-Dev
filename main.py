@@ -3,10 +3,36 @@
 from __future__ import annotations
 
 import json
+import os
 import platform
 import sys
 import tempfile
 from pathlib import Path
+
+
+def configure_packaged_openbabel() -> None:
+    """Point frozen Linux builds at the Open Babel plugin and data folders."""
+    if not getattr(sys, "frozen", False):
+        return
+
+    application_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    locations = {
+        "BABEL_LIBDIR": (
+            application_root / "openbabel" / "lib" / "openbabel" / "3.1.0",
+            application_root / "lib" / "openbabel" / "3.1.0",
+        ),
+        "BABEL_DATADIR": (
+            application_root / "openbabel" / "share" / "openbabel" / "3.1.0",
+            application_root / "share" / "openbabel" / "3.1.0",
+        ),
+    }
+    for variable, candidates in locations.items():
+        if variable in os.environ:
+            continue
+        for candidate in candidates:
+            if candidate.is_dir():
+                os.environ[variable] = str(candidate)
+                break
 
 
 def packaged_self_test(report_path: Path) -> int:
@@ -85,6 +111,7 @@ def packaged_self_test(report_path: Path) -> int:
 
 
 def cli_main() -> int:
+    configure_packaged_openbabel()
     if "--self-test" in sys.argv:
         index = sys.argv.index("--self-test")
         try:
