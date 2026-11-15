@@ -3,6 +3,8 @@ name: Build RPG 2.0 for Windows and Linux
 on:
   workflow_dispatch:
   push:
+    branches:
+      - "codex/release-rpg-v2.0"
     tags:
       - "v2.0.*"
 
