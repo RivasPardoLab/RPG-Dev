@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.metadata
 import os
 import platform
 import shutil
@@ -74,14 +75,26 @@ def main() -> int:
     if os_label == "Linux":
         import openbabel
 
-        openbabel_root = Path(openbabel.__file__).resolve().parent
         openbabel_version = openbabel.__version__
-        plugin_marker = next(openbabel_root.rglob("formats.so"), None)
-        data_marker = next(openbabel_root.rglob("atomtyp.txt"), None)
+        distribution = importlib.metadata.distribution("openbabel-wheel")
+        installed_files = tuple(distribution.files or ())
+
+        def distribution_file(name: str) -> Path | None:
+            return next(
+                (
+                    Path(distribution.locate_file(entry)).resolve()
+                    for entry in installed_files
+                    if Path(str(entry)).name == name
+                ),
+                None,
+            )
+
+        plugin_marker = distribution_file("formats.so")
+        data_marker = distribution_file("atomtyp.txt")
         if plugin_marker is None:
-            raise SystemExit(f"Open Babel plugins were not found below {openbabel_root}")
+            raise SystemExit("Open Babel plugins were not found in openbabel-wheel")
         if data_marker is None:
-            raise SystemExit(f"Open Babel data files were not found below {openbabel_root}")
+            raise SystemExit("Open Babel data files were not found in openbabel-wheel")
         openbabel_plugin_dir = plugin_marker.parent
         openbabel_data_dir = data_marker.parent
 
