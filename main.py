@@ -26,6 +26,10 @@ def configure_packaged_openbabel() -> None:
             application_root / "share" / "openbabel" / "3.1.0",
         ),
     }
+    markers = {
+        "BABEL_LIBDIR": "formats.so",
+        "BABEL_DATADIR": "atomtyp.txt",
+    }
     for variable, candidates in locations.items():
         if variable in os.environ:
             continue
@@ -33,6 +37,13 @@ def configure_packaged_openbabel() -> None:
             if candidate.is_dir():
                 os.environ[variable] = str(candidate)
                 break
+        else:
+            # PyInstaller's layout varies between platforms and versions.
+            # Locate Open Babel by its canonical plugin/data marker instead of
+            # assuming a fixed wheel directory layout.
+            marker = next(application_root.rglob(markers[variable]), None)
+            if marker is not None:
+                os.environ[variable] = str(marker.parent)
 
 
 def packaged_self_test(report_path: Path) -> int:
