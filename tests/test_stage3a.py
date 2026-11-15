@@ -55,9 +55,10 @@ class Stage3ATests(unittest.TestCase):
                 molecule = ob.OBMol()
                 self.assertTrue(reader.ReadFile(molecule, str(path)))
                 self.assertGreater(molecule.NumAtoms(), 0)
-                # Open Babel keeps the input handle open on Windows until it is
-                # closed explicitly, which prevents TemporaryDirectory cleanup.
-                reader.CloseInFile()
+                # Open Babel keeps the input handle open on Windows for the
+                # lifetime of OBConversion. Releasing it here lets the
+                # TemporaryDirectory remove the generated PDBQT files.
+                del reader
 
     def test_existing_ligands_are_not_overwritten(self):
         with tempfile.TemporaryDirectory() as temp_name:
