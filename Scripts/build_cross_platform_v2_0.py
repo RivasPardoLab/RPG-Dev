@@ -68,6 +68,23 @@ def main() -> int:
     if not vina_binary.is_file():
         raise SystemExit(f"Vina executable was not found: {vina_binary}")
 
+    openbabel_plugin_dir = None
+    openbabel_data_dir = None
+    openbabel_version = None
+    if os_label == "Linux":
+        import openbabel
+
+        openbabel_root = Path(openbabel.__file__).resolve().parent
+        openbabel_version = openbabel.__version__
+        plugin_marker = next(openbabel_root.rglob("formats.so"), None)
+        data_marker = next(openbabel_root.rglob("atomtyp.txt"), None)
+        if plugin_marker is None:
+            raise SystemExit(f"Open Babel plugins were not found below {openbabel_root}")
+        if data_marker is None:
+            raise SystemExit(f"Open Babel data files were not found below {openbabel_root}")
+        openbabel_plugin_dir = plugin_marker.parent
+        openbabel_data_dir = data_marker.parent
+
     build_root = project / f"build-v2.0-{os_label.lower()}-x86_64"
     pyinstaller_dist = build_root / "dist"
     release_dir = project / "dist" / f"RPG-Peptides-{VERSION}" / f"{os_label}-x86_64"
@@ -123,6 +140,21 @@ def main() -> int:
     ]
     if os_label == "Windows":
         command.extend(("--icon", str(project / "icon.ico")))
+    else:
+        command.extend(
+            (
+                "--add-binary",
+                add_data(
+                    openbabel_plugin_dir,
+                    f"openbabel/lib/openbabel/{openbabel_version}",
+                ),
+                "--add-data",
+                add_data(
+                    openbabel_data_dir,
+                    f"openbabel/share/openbabel/{openbabel_version}",
+                ),
+            )
+        )
     command.append(str(project / "main.py"))
     subprocess.run(command, cwd=project, check=True)
 
